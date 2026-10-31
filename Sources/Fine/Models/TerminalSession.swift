@@ -124,6 +124,12 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         view.onExit = { [weak self] in
             DispatchQueue.main.async { self?.isRunning = false }
         }
+        // 터미널 프로그램이 보낸 알림(OSC 9/777)은 macOS 알림이 아니라 Fine 노치에 이 탭의 항목으로 올린다 —
+        // 누르면 이 탭이 열리고, 훅이 올리는 알림과 한 곳에 모인다.
+        view.onNotification = { [weak self] title, body in
+            guard let self else { return }
+            MainActor.assumeIsolated { self.postTerminalNotification(title: title, body: body) }
+        }
         terminalView = view
         return view
     }
@@ -364,6 +370,23 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
 
     func matchesConversation(sessionId: String) -> Bool {
         self.sessionId == sessionId
+    }
+
+    @MainActor
+    private func postTerminalNotification(title: String, body: String) {
+        let message = body.isEmpty ? title : body
+        guard !message.isEmpty else { return }
+        do {
+            _ = try AttentionStore.shared.post([
+                "source": "fine:\(id.uuidString.lowercased())",
+                "key": "terminal:\(id.uuidString.lowercased())",
+                "title": title.isEmpty ? name : title,
+                "message": String(message.prefix(4000)),
+                "state": "waiting",
+            ])
+        } catch {
+            NSLog("Fine: terminal notification was not posted: %@", String(describing: error))
+        }
     }
 
     /// 끝난 탭을 다시 고르면 같은 대화를 새 표면으로 다시 띄운다(끝난 표면은 닫는다).

@@ -102,6 +102,21 @@ final class FineTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue(light.contains(TerminalPalette.quickLight.colors["background"]!), light)
     }
 
+    /// 터미널 알림(OSC 9)이 탭까지 온다 — TerminalSession이 그것을 노치에 올린다.
+    @MainActor
+    func testTerminalNotificationReachesTheTab() throws {
+        _ = NSApplication.shared
+        try XCTSkipUnless(GhosttyRuntime.shared.isAvailable, "libghostty did not initialise")
+        let view = FineTerminalView(palette: .quickDark, statusText: "test", harness: .claude, cropsFooterRow: true)
+        defer { view.terminate(synchronously: true) }
+        var notes: [String] = []
+        view.onNotification = { notes.append("\($0)|\($1)") }
+        view.start(.init(command: "/bin/sh -c 'sleep 0.2; printf \"\\033]9;답을 기다립니다\\007\"; sleep 5'",
+                         workingDirectory: NSHomeDirectory()))
+        XCTAssertTrue(wait { !notes.isEmpty }, "no notification")
+        XCTAssertEqual(notes.first?.hasSuffix("|답을 기다립니다"), true, "\(notes)")
+    }
+
     @MainActor
     private func wait(timeout: TimeInterval = 5, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)

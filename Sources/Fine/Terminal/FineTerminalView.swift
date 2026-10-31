@@ -24,6 +24,8 @@ final class FineTerminalView: NSView {
     }
     /// 표면의 자식이 끝났다.
     var onExit: (() -> Void)?
+    /// 터미널 프로그램이 보낸 데스크톱 알림(OSC 9/777): 제목, 본문.
+    var onNotification: ((String, String) -> Void)?
 
     private(set) var surface: GhosttyTerminalView?
     private let clip = FlippedView()
@@ -71,6 +73,7 @@ final class FineTerminalView: NSView {
             guard let self, view === self.surface else { return }
             self.onExit?()
         }
+        view.onNotification = { [weak self] title, body in self?.onNotification?(title, body) }
         view.frame = frames.surface
         clip.addSubview(view)
         surface = view
