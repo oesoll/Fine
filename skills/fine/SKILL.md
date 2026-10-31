@@ -27,6 +27,7 @@ fine keys <target> Enter
 - `fine read <tab> [lines]`: 지금 상호작용할 터미널 버퍼. 읽기 가드를 충족한다.
 - `fine transcript <tab> -n 20`: Claude·Codex·OpenCode의 구조화된 대화 기록. 터미널 화면 확인이나 읽기 가드를 대신하지 않는다.
 - `fine list`, `fine resume <session-id>`, `fine models`: 최근 대화, 재개, 실제 모델 선택지.
+- `fine hide|unhide <session-id>`, `fine hidden`: 최근 목록에서 대화를 숨기거나 되돌린다. transcript는 남으므로 `resume`은 계속 된다.
 
 ## 실행과 검증
 

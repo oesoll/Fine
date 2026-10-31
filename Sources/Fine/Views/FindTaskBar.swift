@@ -74,8 +74,8 @@ struct FindTaskBar: View {
                     }
                     Spacer(minLength: 8)
                     if let since = status.since {
-                        Text(String(format: "%.1f초", max(0, timeline.date.timeIntervalSince(since))))
-                            .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        Text(String(format: "%.1fs", max(0, timeline.date.timeIntervalSince(since))))
+                            .font(FineHomeFont.mono(11))
                             .foregroundStyle(.secondary)
                     } else if status.isSettled {
                         Button(action: onDismiss) {
@@ -94,15 +94,16 @@ struct FindTaskBar: View {
 
                 track(at: timeline.date)
             }
+            // 입력창과 같은 재질의 카드 — 위아래로 놓였을 때 한 벌로 읽혀야 한다.
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(palette.isDark ? palette.glassFill : Color.white.opacity(0.78))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(palette.isDark ? palette.glassEdgeTop.opacity(0.5) : FineTheme.divider, lineWidth: 1)
-                    )
+                let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+                ZStack {
+                    shape.fill(.ultraThinMaterial).environment(\.colorScheme, palette.isDark ? .dark : .light)
+                    shape.fill(palette.isDark ? HomeCardStyle.darkFill.opacity(0.84) : Color.white.opacity(0.9))
+                    shape.strokeBorder(palette.isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.08), lineWidth: 1)
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(detail)")

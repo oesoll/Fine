@@ -107,8 +107,9 @@ final class QuickConversationScanner: ObservableObject {
         return scanClaude(directory: directory, limit: Int.max, tracked: [], index: &index).titles
     }
 
-    static func merged(_ first: [QuickConversation], _ second: [QuickConversation]) -> [QuickConversation] {
-        let unique = Dictionary((first + second).map { ($0.listID, $0) }, uniquingKeysWith: {
+    static func merged(_ first: [QuickConversation], _ second: [QuickConversation],
+                       hidden: Set<String> = HiddenConversations.load()) -> [QuickConversation] {
+        let unique = Dictionary((first + second).filter { !hidden.contains($0.id) }.map { ($0.listID, $0) }, uniquingKeysWith: {
             $0.modifiedAt >= $1.modifiedAt ? $0 : $1
         })
         return unique.values.sorted {
@@ -117,14 +118,16 @@ final class QuickConversationScanner: ObservableObject {
     }
 
     static func scanClaude(
-        directory: URL, limit: Int, tracked: Set<String>, index: inout TranscriptTitleIndex
+        directory: URL, limit: Int, tracked: Set<String>, index: inout TranscriptTitleIndex,
+        hidden: Set<String> = HiddenConversations.load()
     ) -> (rows: [QuickConversation], titles: [String: String], hasMore: Bool) {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
         )) ?? []
         let descriptors = files.compactMap { file -> (URL, String, Date)? in
             let id = file.deletingPathExtension().lastPathComponent
-            guard file.pathExtension == "jsonl", UUID(uuidString: id) != nil,
+            // 숨긴 대화는 페이지 수에 넣지 않는다. 열린 탭의 제목(aiTitle)은 tracked로 따로 읽으므로 그대로다.
+            guard file.pathExtension == "jsonl", UUID(uuidString: id) != nil, !hidden.contains(id) || tracked.contains(id),
                   let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return nil }
             return (file, id, modified)
         }.sorted { $0.2 == $1.2 ? $0.1 < $1.1 : $0.2 > $1.2 }
@@ -140,12 +143,12 @@ final class QuickConversationScanner: ObservableObject {
             retained.insert(url.path)
             guard let metadata = index.metadata(for: url) else { continue }
             if let title = metadata.aiTitle { titles[id] = title }
-            guard neededForPage, let title = metadata.title else { continue }
+            guard neededForPage, !hidden.contains(id), let title = metadata.title else { continue }
             let normalized = title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                 .split(whereSeparator: \.isWhitespace).joined(separator: " ")
             guard seenTitles.insert(normalized).inserted else { continue }
             rows.append(QuickConversation(id: id, title: title, aiTitle: metadata.aiTitle,
-                                          modifiedAt: modified, transcriptURL: url))
+                                          modifiedAt: metadata.lastActivity ?? modified, transcriptURL: url))
         }
         index.retain(paths: retained)
         return (rows, titles, hasMore)

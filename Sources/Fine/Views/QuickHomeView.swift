@@ -14,6 +14,7 @@ struct QuickHomeView: View {
     @State private var findStatus = QuickFindStatus.idle
     /// 돋보기를 누를 때마다 하나씩 늘어 입력창 테두리를 한 번 빛나게 한다.
     @State private var composerFlash = 0
+    @ObservedObject private var recents = QuickConversationScanner.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// - Parameter finding: 돋보기 모드로 시작한다.
@@ -27,7 +28,9 @@ struct QuickHomeView: View {
     }
 
     var body: some View {
-        QuickHomePresentation(openTabs: appState.sessions.map(\.name)) {
+        QuickHomePresentation(openTabs: appState.sessions.map(\.name),
+                              shortcutsEnabled: !isModelPickerPresented,
+                              isBackgroundPickerPresented: $appState.isBackgroundPickerPresented) {
             VStack(spacing: 14) {
                 QuickHomeComposer(
                     prompt: $prompt,
@@ -38,6 +41,7 @@ struct QuickHomeView: View {
                 ) {
                     composerControls
                 }
+                .homeArtworkScheme()
                 belowComposer
             }
         }
@@ -109,8 +113,10 @@ struct QuickHomeView: View {
             // 찾기는 Haiku로 정해져 있다. 모델을 고를 이유가 없다.
             if !isFinding { modelOptions }
         } send: {
-            HStack(spacing: 6) {
+            HStack(spacing: 10) {
                 if !isFinding { findToggle }
+                FineKeyHint(items: [("↩", isFinding ? "찾기" : "보내기"), ("⌥↩", "줄바꿈")])
+                    .layoutPriority(-1)
                 sendButton
             }
         }
@@ -119,14 +125,7 @@ struct QuickHomeView: View {
     /// 새 대화 줄에서 돋보기 모드로 들어가는 문.
     private var findToggle: some View {
         Button { setFinding(true) } label: {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: FineTheme.compactControlHeight, height: FineTheme.compactControlHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: FineTheme.compactControlRadius, style: .continuous)
-                        .fill(FineTheme.controlFill)
-                )
+            FineGhostIcon(systemName: "magnifyingglass")
         }
         .buttonStyle(.finePress)
         .keyboardShortcut("f", modifiers: .command)
@@ -163,20 +162,26 @@ struct QuickHomeView: View {
         withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.9), change)
     }
 
-    /// 입력창 아래 한 줄. 평소에는 안내 문구이고, 찾는 동안에는 작업 막대로 바뀐다.
+    /// 입력창 아래. 평소에는 제안 알약 한 줄과 낮은 안내 문구이고, 찾는 동안에는 작업 막대로 바뀐다.
     private var belowComposer: some View {
         ZStack(alignment: .top) {
             if findStatus == .idle {
-                Text(isFinding ? findIdleDescription : sessionModeDescription)
-                    .font(.system(size: 11))
-                    .fineTracking(11)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
-                    .transition(.opacity)
+                VStack(spacing: 16) {
+                    if !isFinding { suggestionChips }
+                    Text(isFinding ? findIdleDescription : sessionModeDescription)
+                        .font(FineHomeFont.label(isFinding ? findIdleDescription : sessionModeDescription, size: 11.5))
+                        .tracking(0.2)
+                        .homeArtworkText()
+                        .opacity(0.6)
+                        .homeTextScrim(0.45)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 16)
+                }
+                .transition(.opacity)
             } else {
                 FindTaskBar(status: findStatus) { animateFind { findStatus = .idle } }
+                    .homeArtworkScheme()
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .offset(y: -8))
                             .combined(with: .scale(scale: 0.97, anchor: .top)),
@@ -185,6 +190,26 @@ struct QuickHomeView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// 이어서 열 만한 최근 대화 몇 개와 찾기. 이미 탭으로 열린 대화는 사이드바에 있으니 뺀다.
+    private var suggestionChips: some View {
+        let open = Set(appState.sessions.compactMap(\.resumableSessionID))
+        let candidates = recents.conversations.filter { !open.contains($0.id) }.prefix(3)
+        return HomeChipRow {
+            Button { setFinding(true) } label: {
+                HomeChip(text: "/찾기", detail: "⌘F")
+            }
+            .buttonStyle(.finePress)
+            .help("설명으로 예전 대화를 찾아 엽니다")
+            ForEach(Array(candidates), id: \.listID) { conversation in
+                Button { appState.resumeConversation(conversation) } label: {
+                    HomeChip(text: "↗ \(conversation.title)", detail: nil)
+                }
+                .buttonStyle(.finePress)
+                .help("이어서 열기 — \(conversation.title)")
+            }
+        }
     }
 
     private var findIdleDescription: String {
@@ -230,22 +255,13 @@ struct QuickHomeView: View {
     private var modelOptions: some View {
         HStack(spacing: 6) {
             modelPicker
-            if harness == .claude {
-                proxyButton
-            }
         }
     }
 
+    /// 비어 있으면 윤곽만 있는 사각, 쓰기 시작하면 잉크색으로 찬다. 색이 아니라 명도로 "보낼 수 있음"을 말한다.
     private var sendButton: some View {
         Button(action: submit) {
-            Image(systemName: "arrow.up")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(trimmedPrompt.isEmpty ? Color.secondary : FineTheme.sendInk)
-                .frame(width: FineTheme.compactControlHeight, height: FineTheme.compactControlHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: FineTheme.compactControlRadius, style: .continuous)
-                        .fill(trimmedPrompt.isEmpty ? FineTheme.controlFill : FineTheme.sendFill)
-                )
+            SendGlyph(isReady: !trimmedPrompt.isEmpty)
         }
         .buttonStyle(.finePress)
         // 찾는 동안에도 새 대화는 시작할 수 있다. 막히는 건 두 번째 찾기뿐이다.
@@ -343,33 +359,6 @@ struct QuickHomeView: View {
         QuickComposerPreferences.save(currentConfiguration)
     }
 
-    private var proxyButton: some View {
-        let requiresProxy = selectedModel.requiresProxy
-        let locked = requiresProxy || selectedModel.isDefault || !modelCatalog.routerAvailable
-        return Button {
-            guard !locked else { return }
-            proxyEnabled.toggle()
-        } label: {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(proxyEnabled ? .primary : .secondary.opacity(0.72))
-                .frame(width: FineTheme.compactControlHeight, height: FineTheme.compactControlHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: FineTheme.compactControlRadius, style: .continuous)
-                        .fill(Color.primary.opacity(proxyEnabled ? 0.10 : 0.045))
-                )
-        }
-        .buttonStyle(.finePress)
-        .disabled(locked)
-        .help(proxyHelp)
-    }
-
-    private var proxyHelp: String {
-        if selectedModel.isDefault { return "기본 모드는 라우터 없이 터미널의 ccv와 똑같이 실행됩니다" }
-        if selectedModel.requiresProxy { return "Codex, Kimi, Gemini, Alibaba 모델은 프록시 세션이 필수입니다" }
-        return "세션 내 모델 전환 허용"
-    }
-
     private var sessionModeDescription: String {
         if modelCatalog.isLoading { return "모델 목록 확인 중" }
         switch harness {
@@ -387,7 +376,7 @@ struct QuickHomeView: View {
             if selectedModel.isDefault { return "Claude 기본 모델로 시작합니다" }
             if selectedModel.isAuto { return "질문 난이도를 보고 모델과 깊이를 골라 시작합니다" }
             if !modelCatalog.routerAvailable { return "연결을 확인할 수 없어 Claude 모델만 사용할 수 있습니다" }
-            if selectedModel.requiresProxy || proxyEnabled {
+            if selectedModel.requiresProxy {
                 return "대화 중에도 다른 제공사의 모델로 전환할 수 있습니다"
             }
             return "Claude로 시작합니다"

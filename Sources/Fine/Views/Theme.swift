@@ -9,8 +9,8 @@ enum FineTheme {
     static let rowHorizontalPadding: CGFloat = 10
     static let iconSize: CGFloat = 12
     static let iconFrame: CGFloat = 16
-    static let compactControlHeight: CGFloat = 30
-    static let compactControlRadius: CGFloat = 7
+    static let compactControlHeight: CGFloat = 32
+    static let compactControlRadius: CGFloat = 9
     static let composerCornerRadius: CGFloat = 14
     static let homeContentWidth: CGFloat = 680
 
@@ -64,15 +64,33 @@ extension Color {
 /// Pretendard가 깔려 있으면 그것을 쓰고, 없으면 시스템 서체로 떨어진다 —
 /// `Font.custom`은 이름을 못 찾으면 조용히 시스템으로 돌아간다.
 enum FineDisplayFont {
+    /// 밝은 쪽도 세리프를 버렸다 — 한글은 명조로 떨어져 점묘 장면 위에서 획이 끊겨 보였다.
+    /// 굵기는 Regular: 큰 글자를 가늘게 두고 마지막 어절의 색으로 힘을 준다(2026-10-27, 레퍼런스
+    /// "kurage" 홈). SemiBold는 같은 크기에서 화면을 눌렀다.
     static func greeting(size: CGFloat, isDark: Bool) -> Font {
-        guard isDark else {
-            return .system(size: size, weight: .regular, design: .serif)
-        }
-        return .custom("Pretendard-Medium", size: size)
+        .custom("Pretendard-Regular", size: size)
     }
 
-    /// 세리프는 같은 크기에서 더 크게 읽히고 자간도 더 조여야 한다.
-    static func greetingTracking(isDark: Bool) -> CGFloat { isDark ? -0.9 : -0.5 }
+    static func greetingTracking(isDark: Bool) -> CGFloat { -1.4 }
+}
+
+/// 홈 화면의 한글 글자. 인사말과 같은 서체로 맞춰야 한 화면이 한 목소리로 읽힌다.
+enum FineHomeFont {
+    static let note = Font.custom("Pretendard-Medium", size: 13)
+    static let prompt = Font.custom("Pretendard-Regular", size: 16)
+    static let caption = Font.custom("Pretendard-Medium", size: 12)
+    static let chip = Font.custom("Pretendard-Medium", size: 12)
+    /// 상태·단축키·제안처럼 "기계가 하는 말"은 고정폭으로 낮춘다. 한글은 시스템 고딕으로 떨어진다.
+    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+
+    /// 고정폭에는 한글 글꼴이 없다. 한글이 섞이면 비례폭 고딕으로 떨어지면서 고정폭 공백만 남아
+    /// 어절 사이가 벌어졌다(2026-10-27 캡처). 한글이 있으면 Pretendard, 없으면 고정폭.
+    static func label(_ text: String, size: CGFloat) -> Font {
+        text.unicodeScalars.contains { (0xAC00...0xD7A3).contains($0.value) || (0x3131...0x318E).contains($0.value) }
+            ? .custom("Pretendard-Medium", size: size) : mono(size)
+    }
 }
 
 /// 누르는 순간 반응한다. 놓을 때까지 기다리면 직접 만지는 느낌이 사라진다.
@@ -105,9 +123,46 @@ extension View {
 }
 
 struct GlassSidebarBackground: View {
+    /// 홈(새 탭)에서는 배경 장면이 사이드바 밑까지 번진다. 그때 사이드바는 바탕화면을 비치는
+    /// 유리가 아니라, 장면 위에 바탕색을 반쯤 덮은 면이 된다 — 장면이 은은하게 비친다.
+    var overArtwork = false
+    /// 작업부 위에 겹쳐 뜬 사이드바. 밑이 바탕화면이 아니라 터미널이므로 바탕화면 유리는 쓸 수 없다.
+    var floating = false
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        ZStack(alignment: .trailing) {
+            if floating && !overArtwork {
+                // 장면이 없으면 겹친 사이드바는 불투명한 작업부 면이다.
+                Rectangle().fill(FineTheme.workspace)
+                Rectangle().fill(FineTheme.glassEdge).frame(width: 1)
+            } else {
+                desktopGlass.opacity(overArtwork ? 0 : 1)
+                artworkVeil.opacity(overArtwork ? 1 : 0)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: overArtwork)
+        .ignoresSafeArea()
+    }
+
+    /// 장면 위의 막. 창 안의 장면을 흐리게 받는 블러 위에 바탕색을 반쯤 덮는다 —
+    /// 장면이 형체 없이 빛으로만 비치고, 사이드바 글자는 점과 다투지 않는다.
+    private var artworkVeil: some View {
+        let palette = FinePalette.resolve(colorScheme)
+        return ZStack(alignment: .trailing) {
+            // 밑에는 홈 배경이 깔아 둔 흐린 정지 화면이 있다(QuickHomeBackdrop).
+            // 위아래 같은 두께 한 겹 — 위쪽 광택 그라데이션은 상단만 막혀 보이게 했다.
+            // 옅은 밝기 한 겹은 장면이 끝난 아래쪽에서도 사이드바가 같은 재질로 읽히게 한다.
+            // 겹쳐 뜬 사이드바도 고정 사이드바와 같은 막이다 — 밑의 터미널은 ContentView가 비운다.
+            Rectangle().fill(palette.base.opacity(palette.isDark ? 0.55 : 0.6))
+            Rectangle().fill(Color.white.opacity(palette.isDark ? 0.045 : 0.28))
+            Rectangle().fill(FineTheme.glassEdge).frame(width: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var desktopGlass: some View {
         // 어두운 쪽에서는 흰 광택이 뿌옇게 뜬다. 같은 구조에 세기만 낮춘다.
         let sheen = colorScheme == .dark ? 0.10 : 1.0
         ZStack(alignment: .trailing) {
@@ -167,6 +222,8 @@ struct FinePalette {
     let ink: Color
     /// 컴포저 유리의 채움과 위/아래 테두리.
     let glassFill: Color
+    /// 시스템 유리(macOS 26+)에 얹는 색. 유리는 뒤를 따라 밝기가 바뀌므로 글자색 쪽으로 붙잡아 둔다.
+    let composerTint: Color
     let glassEdgeTop: Color
     let glassEdgeBottom: Color
     /// 작은 컨트롤의 바탕. 어두운 쪽에서는 검정이 아니라 옅은 흰색이어야 보인다.
@@ -188,6 +245,7 @@ struct FinePalette {
         base: Color(red: 0.965, green: 0.962, blue: 0.948),
         ink: Color(red: 0.19, green: 0.21, blue: 0.19),
         glassFill: .white.opacity(0.82),
+        composerTint: .white.opacity(0.10),
         glassEdgeTop: .white.opacity(0.85),
         glassEdgeBottom: .white.opacity(0.12),
         controlFill: .black.opacity(0.05),
@@ -206,6 +264,7 @@ struct FinePalette {
         base: Color(red: 0.027, green: 0.035, blue: 0.063),
         ink: Color(red: 0.90, green: 0.93, blue: 0.99),
         glassFill: Color(red: 0.055, green: 0.085, blue: 0.175).opacity(0.58),
+        composerTint: Color(red: 0.03, green: 0.04, blue: 0.09).opacity(0.12),
         glassEdgeTop: .white.opacity(0.30),
         glassEdgeBottom: .white.opacity(0.04),
         controlFill: .white.opacity(0.08),
@@ -213,7 +272,7 @@ struct FinePalette {
         bloom: Color(red: 0.16, green: 0.30, blue: 0.72),
         shadow: .black.opacity(0.55),
         sidebarTint: .black.opacity(0.74),
-        sceneScrim: .black.opacity(0.30),
+        sceneScrim: .black.opacity(0.14),
         // 거의 검은 패널 위에서는 흰 면이 조명처럼 튄다. 한 단만 들어 올린다.
         selectedFill: .white.opacity(0.10),
         selectedRim: .white.opacity(0.14)

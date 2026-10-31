@@ -21,10 +21,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Prepare the user's home artwork after the first launch turn. Its
                 // thumbnail then stays ready for the first light-to-dark switch.
                 _ = HomeSceneImageStore.shared
-                AmbientLandscapeRenderer.prewarm()
             }
         }
         startControlServer()
+        MainActor.assumeIsolated { AttentionNotch.shared.start() }
+        requestAgentPermissions()
+    }
+
+    /// 탭 안 에이전트의 computer-use는 macOS가 Fine의 권한으로 판정한다. 빠져 있으면 시작할 때
+    /// 시스템에 요청한다. macOS 27.2에서는 화면 녹화 요청이 창을 띄우지 않았다(2026-10-27) —
+    /// 예전 서명에 묶인 항목이 남으면 `tccutil reset ScreenCapture com.seol.fine` 후 설정에서 직접 켠다.
+    private func requestAgentPermissions() {
+        if !CGPreflightScreenCaptureAccess() {
+            _ = CGRequestScreenCaptureAccess()
+        }
+        let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
     }
 
     /// `fine` CLI용 제어 소켓. 실패해도 앱은 정상 동작한다 — CLI만 쓸 수 없게 된다.
@@ -94,16 +106,20 @@ struct FineCommands: Commands {
         }
 
         CommandGroup(after: .toolbar) {
-            Button("홈 배경 고르기…") { HomeSceneLibrary.chooseAndInstall() }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-            Button("홈 배경 지우기") { try? HomeSceneLibrary.clear() }
+            Button("홈 배경 고르기…") {
+                appState?.showHome()
+                appState?.isBackgroundPickerPresented = true
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
         }
 
         CommandMenu("Conversation") {
+            Button("에이전트 알림") { AttentionNotch.shared.reveal(animated: false) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Next Conversation") { appState?.selectNextSession() }
-                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .keyboardShortcut(.downArrow, modifiers: [.command])
             Button("Previous Conversation") { appState?.selectPreviousSession() }
-                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .keyboardShortcut(.upArrow, modifiers: [.command])
         }
     }
 }

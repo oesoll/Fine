@@ -97,9 +97,13 @@ class SessionRowMouseView: NSView, NSDraggingSource {
         return incoming
     }
 
+    /// 위·아래 4분의 1은 행 사이로 끼우고, 가운데 절반은 이 행 아래로 묶는다.
     func insertionEdge(at point: NSPoint) -> SessionInsertionEdge {
         // AppKit coordinates increase upward unless the view is flipped.
-        (isFlipped ? point.y < bounds.midY : point.y >= bounds.midY) ? .before : .after
+        let fromTop = isFlipped ? point.y : bounds.height - point.y
+        if fromTop < bounds.height * 0.25 { return .before }
+        if fromTop > bounds.height * 0.75 { return .after }
+        return .nest
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

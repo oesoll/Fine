@@ -6,12 +6,25 @@ struct QuickSidebarView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var recentScanner = QuickConversationScanner.shared
+    @ObservedObject private var backgrounds = HomeBackgroundSettings.shared
+    @Environment(\.sidebarFloating) private var floating
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var isHoveringNew = false
     @AppStorage("recentConversationsExpanded") private var recentExpanded = true
 
     private var palette: FinePalette { .resolve(colorScheme) }
 
+    private var showsArtwork: Bool {
+        !reduceTransparency && backgrounds.background(for: palette.isDark ? .dark : .light).isPanorama
+    }
+
     private static let rowHeight: CGFloat = 37
+    /// 하위 탭 줄. 메인 탭 아래 한 단, 작게.
+    static let childRowHeight: CGFloat = 28
+
+    private func height(of session: TerminalSession) -> CGFloat {
+        session.parentID == nil ? Self.rowHeight : Self.childRowHeight
+    }
     /// "새 대화"와 구역 머리글이 밀려나면 안 되므로 그만큼은 남겨둔다.
     private static let reservedForChrome: CGFloat = 108
 
@@ -19,7 +32,7 @@ struct QuickSidebarView: View {
     /// 지금 하는 일이 먼저고 지난 것은 나중이다.
     private func openListHeight(in total: CGFloat) -> CGFloat {
         let ceiling = max(Self.rowHeight, total * 0.9 - Self.reservedForChrome)
-        return min(ceiling, CGFloat(appState.sessions.count) * Self.rowHeight)
+        return min(ceiling, appState.sessions.reduce(0) { $0 + height(of: $1) })
     }
 
     private var newConversationRow: some View {
@@ -50,8 +63,26 @@ struct QuickSidebarView: View {
             .animation(.easeOut(duration: 0.14), value: isHoveringNew)
 
             AppearanceToggle()
+            sidebarToggle
         }
         .padding(.horizontal, FineTheme.sidebarInset)
+    }
+
+    /// 외형 토글 오른쪽: 사이드바 접기 / 겹쳐 나온 사이드바 고정.
+    private var sidebarToggle: some View {
+        Button {
+            // 창마다 사이드바가 있다. 이 창의 상태만 바꾸도록 자기 AppState를 실어 보낸다.
+            NotificationCenter.default.post(name: SidebarCollapse.toggle, object: appState)
+        } label: {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.finePress)
+        .help(floating ? "사이드바 펼쳐 두기 (⌃⌘S)" : "사이드바 접기 (⌃⌘S)")
+        .accessibilityLabel(floating ? "사이드바 펼쳐 두기" : "사이드바 접기")
     }
 
     var body: some View {
@@ -77,8 +108,9 @@ struct QuickSidebarView: View {
                                 drag: OpenSessionDrag(windowID: appState.windowStateID, sessionID: session.id),
                                 onDropSession: { item, edge in
                                     guard item.windowID == appState.windowStateID else { return false }
-                                    return appState.moveSession(id: item.sessionID, relativeTo: session.id, edge: edge)
-                                }
+                                    return appState.dropSession(id: item.sessionID, onto: session.id, edge: edge)
+                                },
+                                onUngroup: { appState.ungroupSession(id: session.id) }
                             )
                             .accessibilityAction(named: Text("위로 이동")) {
                                 appState.moveSession(id: session.id, by: -1)
@@ -92,14 +124,18 @@ struct QuickSidebarView: View {
                         // One persistent selection block travels between rows; only this
                         // layer animates, so terminal selection and row hitboxes stay immediate.
                         let selectedIndex = appState.sessions.firstIndex { $0.id == appState.selectedSession?.id }
+                        // 줄 높이가 메인/하위로 다르다. 선택 면의 자리와 높이를 앞 줄들의 합으로 낸다.
+                        let selectedOffset = appState.sessions.prefix(selectedIndex ?? 0).reduce(0) { $0 + height(of: $1) }
+                        let selectedHeight = selectedIndex.map { height(of: appState.sessions[$0]) } ?? Self.rowHeight
                         RoundedRectangle(cornerRadius: FineTheme.rowCornerRadius, style: .continuous)
                             .fill(palette.selectedFill)
                             .overlay {
                                 RoundedRectangle(cornerRadius: FineTheme.rowCornerRadius, style: .continuous)
                                     .stroke(palette.selectedRim, lineWidth: 1)
                             }
-                            .frame(height: 37)
-                            .offset(y: CGFloat(selectedIndex ?? 0) * 37)
+                            .frame(height: selectedHeight)
+                            .padding(.leading, selectedHeight < Self.rowHeight ? QuickSessionRow.childIndent : 0)
+                            .offset(y: selectedOffset)
                             .opacity(selectedIndex == nil ? 0 : 1)
                             .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 1), value: selectedIndex)
                             .allowsHitTesting(false)
@@ -138,7 +174,8 @@ struct QuickSidebarView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .background { GlassSidebarBackground() }
+        // 홈의 장면이 깔린 배경이면, 대화 탭에서도 사이드바는 그 장면 위의 막이다.
+        .background { GlassSidebarBackground(overArtwork: showsArtwork, floating: floating) }
         .onAppear {
             recentScanner.start()
         }
@@ -222,12 +259,18 @@ struct QuickSidebarView: View {
 private struct QuickSessionRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var session: TerminalSession
+    @ObservedObject private var attention = AttentionStore.shared
     let isSelected: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let drag: OpenSessionDrag
     let onDropSession: (OpenSessionDrag, SessionInsertionEdge) -> Bool
+    var onUngroup: () -> Void = {}
     @State private var insertionEdge: SessionInsertionEdge?
+    /// 하위 탭 줄이 메인 탭 이름 아래에서 시작하는 자리.
+    static let childIndent: CGFloat = 14
+
+    private var isChild: Bool { session.parentID != nil }
     @State private var isHovering = false
     @State private var isRenaming = false
     @State private var draft = ""
@@ -244,8 +287,31 @@ private struct QuickSessionRow: View {
         session.rename(to: draft)
     }
 
+    /// 점은 다를 때만 말한다. 열린 탭은 거의 다 돌고 있어서, 돌고 있다는 초록 점은 15줄 모두에
+    /// 붙어 아무것도 알려 주지 않았다(2026-10-27). 작업 중·답 기다림·오류·꺼짐만 보인다.
+    private var statusDot: SessionStatusDot.Kind? {
+        guard session.isRunning else { return .stopped }
+        let tab = "fine:\(session.id.uuidString.lowercased())"
+        let key = session.resumableSessionID.map { "\(session.configuration.harness.rawValue):\($0)" }
+        let item = attention.items
+            .filter { $0.source.lowercased() == tab || ($0.key == key && key != nil) }
+            .max { $0.updatedAt < $1.updatedAt }
+        switch item?.state {
+        case .working: return .working
+        case .waiting, .blocked: return .needsYou
+        case .error: return .error
+        case .done, .unknown, nil: return nil
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: isChild ? 5 : 8) {
+            if isChild {
+                // ㄴ — 이 탭이 위 메인 탭에서 갈라져 나왔다.
+                Text("└")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.tertiary)
+            }
             if isRenaming {
                 // 제자리에서 고친다. 창을 띄우면 이름 하나 바꾸는 일이 과해진다.
                 TextField("", text: $draft)
@@ -260,24 +326,26 @@ private struct QuickSessionRow: View {
                     }
             } else {
                 Text(session.name)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                    .font(.system(size: isChild ? 12 : 13, weight: isSelected ? .semibold : .medium))
                     .lineLimit(1)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(isChild && !isSelected ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             }
             Spacer(minLength: 0)
-            Circle()
-                .fill(session.isRunning ? Color.green.opacity(0.72) : Color.secondary.opacity(0.3))
-                .frame(width: 5, height: 5)
+            SessionStatusDot(state: statusDot)
         }
         .padding(.leading, FineTheme.rowHorizontalPadding)
         .padding(.trailing, 36)
         .frame(maxWidth: .infinity)
-        .frame(height: 37)
+        .frame(height: isChild ? QuickSidebarView.childRowHeight : 37)
+        .padding(.leading, isChild ? Self.childIndent : 0)
         .accessibilityHidden(true)
         // 더블클릭이 파인더·사파리에서 이름을 고치는 몸짓이다. 메뉴는 그 보조다.
         .onTapGesture(count: 2) { beginRename() }
         .contextMenu {
             Button("이름 바꾸기") { beginRename() }
+            if isChild {
+                Button("묶음에서 빼기") { onUngroup() }
+            }
             if session.isNameUserSet {
                 Button("자동 제목으로") { session.clearCustomName() }
             }
@@ -289,8 +357,16 @@ private struct QuickSessionRow: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isHovering)
                 .allowsHitTesting(false)
         }
+        .overlay {
+            // 가운데에 놓으면 이 줄 아래로 묶인다 — 줄 전체에 테두리.
+            if insertionEdge == .nest {
+                RoundedRectangle(cornerRadius: FineTheme.rowCornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.45), lineWidth: 1.5)
+                    .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: insertionEdge == .before ? .top : .bottom) {
-            if insertionEdge != nil {
+            if insertionEdge == .before || insertionEdge == .after {
                 Capsule()
                     .fill(Color.primary.opacity(0.48))
                     .frame(height: 2)
@@ -366,5 +442,54 @@ struct QuickRecentConversationRow: View {
         if seconds < 3_600 { return "\(seconds / 60)분 전" }
         if seconds < 86_400 { return "\(seconds / 3_600)시간 전" }
         return "\(seconds / 86_400)일 전"
+    }
+}
+
+/// 사이드바 줄 끝의 상태 점. 고정 폭 칸을 지켜 점이 있든 없든 제목 끝이 흔들리지 않는다.
+struct SessionStatusDot: View {
+    enum Kind { case working, needsYou, error, stopped }
+    let state: Kind?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathing = false
+
+    var body: some View {
+        ZStack {
+            switch state {
+            case .working:
+                Circle().fill(Color(red: 0.45, green: 0.80, blue: 0.86))
+                    .frame(width: 5, height: 5)
+                    .shadow(color: Color(red: 0.45, green: 0.80, blue: 0.86).opacity(0.8), radius: breathing ? 4 : 1.5)
+                    .opacity(breathing ? 1 : 0.55)
+            case .needsYou:
+                Circle().fill(Color(red: 0.95, green: 0.74, blue: 0.36)).frame(width: 6, height: 6)
+            case .error:
+                Circle().fill(Color(red: 0.93, green: 0.40, blue: 0.36)).frame(width: 6, height: 6)
+            case .stopped:
+                Circle().strokeBorder(Color.secondary.opacity(0.55), lineWidth: 1).frame(width: 6, height: 6)
+            case nil:
+                EmptyView()
+            }
+        }
+        .frame(width: 8, height: 8)
+        .onAppear { breathe() }
+        .onChange(of: state) { breathe() }
+        .help(helpText)
+    }
+
+    /// 작업 중은 느리게 숨 쉰다 — 정지한 점은 "끝났나?"로 읽힌다. 동작 줄이기면 멈춘 점.
+    private func breathe() {
+        guard state == .working, !reduceMotion else { breathing = state == .working; return }
+        breathing = false
+        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathing = true }
+    }
+
+    private var helpText: String {
+        switch state {
+        case .working: "작업 중"
+        case .needsYou: "답을 기다립니다"
+        case .error: "오류"
+        case .stopped: "멈춤 — 다시 열면 이어집니다"
+        case nil: ""
+        }
     }
 }

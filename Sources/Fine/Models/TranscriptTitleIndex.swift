@@ -8,6 +8,9 @@ struct TranscriptTitleIndex {
     struct Metadata: Equatable {
         var aiTitle: String?
         var firstUserTitle: String?
+        /// 마지막으로 말을 주고받은 시각. 파일 수정 시각은 resume이 덧붙이는 기록(cost-state 등)으로도
+        /// 바뀌어, Fine을 재시작하면 열린 대화가 전부 "방금"이 됐다(2026-10-27).
+        var lastActivity: Date?
         var title: String? { aiTitle ?? firstUserTitle }
     }
     private struct Entry {
@@ -22,6 +25,15 @@ struct TranscriptTitleIndex {
     static let maximumLineBytes = 262_144
     private static let titleMarker = Data("\"ai-title\"".utf8)
     private static let userMarker = Data("\"user\"".utf8)
+    // 최상위 키만 맞는다. 본문 안의 JSON 글자는 따옴표가 \"로 이스케이프돼 이 바이트열이 되지 않는다.
+    private static let userTypeMarker = Data("\"type\":\"user\"".utf8)
+    private static let assistantTypeMarker = Data("\"type\":\"assistant\"".utf8)
+    private static let timestampMarker = Data("\"timestamp\":\"".utf8)
+    private static let timestampFormat: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
     private var entries: [String: Entry] = [:]
     private(set) var bytesRead = 0
     var cachedFileCount: Int { entries.count }
@@ -84,6 +96,9 @@ struct TranscriptTitleIndex {
     }
 
     private func parse(_ line: Data, into metadata: inout Metadata) {
+        if let stamp = Self.activityStamp(in: line), stamp > (metadata.lastActivity ?? .distantPast) {
+            metadata.lastActivity = stamp
+        }
         guard !line.isEmpty,
               line.range(of: Self.titleMarker) != nil ||
                 (metadata.firstUserTitle == nil && line.range(of: Self.userMarker) != nil),
@@ -98,5 +113,15 @@ struct TranscriptTitleIndex {
                   !text.hasPrefix("[Request interrupted") else { return }
             metadata.firstUserTitle = String(text.replacingOccurrences(of: "\n", with: " ").prefix(240))
         }
+    }
+
+    /// 사람이나 모델이 말한 기록의 시각만 센다. JSON 전체를 풀지 않고 바이트로 찾는다 —
+    /// 첫 읽기는 수십 MB 대화를 끝까지 훑으므로 줄마다 파싱하면 비싸다.
+    private static func activityStamp(in line: Data) -> Date? {
+        guard line.range(of: userTypeMarker) != nil || line.range(of: assistantTypeMarker) != nil,
+              let marker = line.range(of: timestampMarker),
+              let end = line[marker.upperBound...].firstIndex(of: UInt8(ascii: "\"")),
+              let text = String(data: line[marker.upperBound..<end], encoding: .utf8) else { return nil }
+        return timestampFormat.date(from: text)
     }
 }

@@ -187,12 +187,14 @@ struct QuickSessionConfiguration: Codable, Equatable, Sendable {
     /// 아직 해소되지 않은 "자동". 이 상태로 세션을 띄우면 안 된다.
     var isAutoModel: Bool { modelID == QuickAutoRouter.autoModelID }
 
-    /// The router only ever sits in front of Claude Code, and never in default
-    /// mode: "기본" means the user asked for the terminal's plain `ccv`.
+    /// The router only ever sits in front of Claude Code, and only for models
+    /// that cannot run without it. Stock Claude models run exactly as the stock
+    /// harness does, even with the router up: through the router Claude Code
+    /// clamps claude-* IDs to 200K and auto-compacts at ~167K. `proxyEnabled`
+    /// is kept only so configurations saved before this still decode.
     var usesProxy: Bool {
         guard harness == .claude, !isDefaultModel, !isAutoModel else { return false }
-        return proxyEnabled
-            || modelID.hasPrefix("claude-codex-")
+        return modelID.hasPrefix("claude-codex-")
             || modelID.hasPrefix("claude-kimi-")
             || modelID.hasPrefix("claude-gemini-")
             || modelID.hasPrefix("claude-openrouter-")
@@ -423,8 +425,13 @@ final class QuickModelCatalog: ObservableObject {
                 guard !discovered.isEmpty else {
                     throw URLError(.cannotParseResponse)
                 }
+                // 순정 Claude 모델은 라우터 목록이 아니라 순정 피커와 같은 카탈로그에서 온다.
+                // 라우터는 다른 제공사 모델만 보탠다.
+                let stock = await Task.detached(priority: .utility) {
+                    ClaudeCLIModelDiscovery.discover()
+                }.value
                 guard !Task.isCancelled else { return }
-                self?.models = [.defaultOption(for: .claude), QuickAutoRouter.autoOption(for: .claude)] + discovered
+                self?.models = Self.claudeFallbackModels + stock + discovered.filter { $0.provider != .claude }
                 self?.routerAvailable = true
             } catch {
                 guard !Task.isCancelled else { return }

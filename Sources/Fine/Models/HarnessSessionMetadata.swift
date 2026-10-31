@@ -82,14 +82,19 @@ struct HarnessSessionStore {
         let filter = "FROM threads WHERE cwd = ? AND archived = 0 AND source = 'cli' "
         // Stop the read-only cursor after enough *displayable* rows. Blank or
         // placeholder titles must not hide valid older conversations behind a page.
-        let codex = read(codexDatabase, query:
-            "SELECT id, COALESCE(NULLIF(trim(name), ''), title) AS title, updated_at AS updated "
-            + filter + "ORDER BY updated_at DESC, id DESC", arguments: [workingDirectory],
-                         maximumRows: limit, accepting: { Self.conversation($0, harness: .codex) != nil })
-            ?? read(codexDatabase, query: "SELECT id, title, updated_at AS updated "
-                + filter + "ORDER BY updated_at DESC, id DESC", arguments: [workingDirectory],
-                    maximumRows: limit, accepting: { Self.conversation($0, harness: .codex) != nil })
-            ?? []
+        // updated_at은 resume만 해도 그 시각으로 바뀐다 — Fine을 재시작하면 열린 대화가 전부
+        // "방금"이 됐다(2026-10-27). recency_at은 실제로 말을 주고받은 시각이다. 없는 옛 DB는 아래로.
+        let named = "SELECT id, COALESCE(NULLIF(trim(name), ''), title) AS title, "
+        let recency = "CASE WHEN recency_at > 0 THEN recency_at ELSE updated_at END AS updated "
+        let queries: [String] = [
+            named + recency + filter + "ORDER BY updated DESC, id DESC",
+            named + "updated_at AS updated " + filter + "ORDER BY updated_at DESC, id DESC",
+            "SELECT id, title, updated_at AS updated " + filter + "ORDER BY updated_at DESC, id DESC",
+        ]
+        let codex = queries.lazy.compactMap {
+            read(codexDatabase, query: $0, arguments: [workingDirectory], maximumRows: limit,
+                 accepting: { Self.conversation($0, harness: .codex) != nil })
+        }.first ?? []
         let openCode = read(openCodeDatabase, query: """
             SELECT id, title, time_updated AS updated FROM session
             WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL

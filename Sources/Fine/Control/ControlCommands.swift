@@ -27,6 +27,22 @@ enum ControlCommands {
 
     private static func dispatch(_ r: ControlRequest) throws -> Any {
         switch r.command {
+        case "attention.post":
+            return try AttentionStore.shared.post(r.args).json
+        case "attention.list":
+            return AttentionStore.shared.ordered.map(\.json)
+        case "attention.dismiss":
+            guard let id = r.string("id") else { throw fail("id required") }
+            try AttentionStore.shared.dismiss(id: id)
+            return ["dismissed": id]
+        case "attention.show":
+            AttentionNotch.shared.reveal()
+            return AttentionNotch.shared.status
+        case "attention.hide":
+            AttentionNotch.shared.hide()
+            return AttentionNotch.shared.status
+        case "attention.status":
+            return AttentionNotch.shared.status
         case "ping":
             return [
                 "pid": ProcessInfo.processInfo.processIdentifier,
@@ -62,6 +78,9 @@ enum ControlCommands {
 
         case "tab.select":
             let (entry, windowIndex, session, _) = try tab(r)
+            if let fingerprint = r.string("fingerprint"), !fingerprint.isEmpty {
+                try requireFingerprint(r, session)
+            }
             entry.state.selectSession(session)
             if r.bool("focus") ?? true { focus(entry) }
             return describe(session, index: index(of: session, in: entry), in: entry, windowIndex: windowIndex)
@@ -177,6 +196,19 @@ enum ControlCommands {
         case "doctor":
             return FineDoctor.run()
 
+        case "conversations.hide", "conversations.unhide":
+            // CLI 전용: 최근 목록에서만 빼고 transcript는 남긴다. 목록은 곧바로 다시 스캔한다.
+            guard let id = r.string("id")?.trimmingCharacters(in: .whitespaces), !id.isEmpty, !id.contains("/") else {
+                throw fail("session id required")
+            }
+            let hide = r.command == "conversations.hide"
+            let changed = try HiddenConversations.set(id, hidden: hide)
+            QuickConversationScanner.shared.rescan()
+            return ["id": id, "hidden": hide, "changed": changed]
+
+        case "conversations.hidden":
+            return HiddenConversations.load().sorted()
+
         case "state.dump":
             let data = try JSONEncoder.pretty.encode(WindowStateStorage.shared.states)
             return try JSONSerialization.jsonObject(with: data)
@@ -193,6 +225,29 @@ enum ControlCommands {
     /// 처리했으면 true. 창 생성은 SwiftUI가 다음 run loop에서 AppState를 만들기 때문에
     /// 레지스트리에 새 창이 등록될 때까지 폴링한 뒤 응답한다.
     private static func dispatchAsync(_ r: ControlRequest, completion: @escaping (ControlResponse) -> Void) throws -> Bool {
+        if r.command == "attention.snapshot" {
+            guard let path = r.string("path"), path.hasPrefix("/") else { throw fail("absolute path required") }
+            let compact = r.bool("compact") ?? false
+            if !compact { AttentionNotch.shared.reveal(automatic: true, detail: true) }
+            Task {
+                do {
+                    try await Task.sleep(for: .milliseconds(350))
+                    try AttentionNotch.shared.snapshot(to: path, compact: compact)
+                    completion(.ok(["path": path]))
+                } catch { completion(.error(String(describing: error))) }
+            }
+            return true
+        }
+        if r.command == "attention.open" {
+            guard let id = r.string("id"), let item = AttentionStore.shared.items.first(where: { $0.id == id }) else {
+                throw fail("notification not found")
+            }
+            Task {
+                do { try await AttentionRouter.open(item); completion(.ok(["opened": id])) }
+                catch { completion(.error(String(describing: error))) }
+            }
+            return true
+        }
         switch r.command {
         case "window.new":
             openWindow { entry in
@@ -325,7 +380,11 @@ enum ControlCommands {
                             harness: r.string("harness"), model: r.string("model"),
                             effort: r.string("effort"), proxy: r.bool("proxy")
                         )
-                        entry.state.addSession(initialPrompt: r.string("prompt"), configuration: configuration)
+                        // 부르는 탭이 같은 창에 있으면 그 아래로 묶는다.
+                        let parent = r.string("parent").flatMap { UUID(uuidString: $0) }
+                            .flatMap { id in entry.state.sessions.contains { $0.id == id } ? id : nil }
+                        entry.state.addSession(initialPrompt: r.string("prompt"), configuration: configuration,
+                                               parentID: parent)
                     }
                     if r.bool("focus") ?? true { focus(entry) }
                     guard let session = entry.state.selectedSession else { throw fail("session not created") }

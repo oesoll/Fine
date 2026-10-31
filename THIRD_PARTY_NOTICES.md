@@ -1,5 +1,19 @@
 # Third-Party Notices
 
+## ascii.rest — all 15 landscape scenes
+
+The home backgrounds include all 15 original pieces in the `scenes` category and the `mount` canvas
+renderer from [ascii.rest](https://github.com/bas3line/ascii), version 0.2.1,
+commit `653e6229efbfb8b3c6adf23f6290c19e7b3ce314`.
+
+Copyright (c) 2026 bas3line (https://github.com/bas3line).
+Distributed under the MIT License. The unmodified sources, source hashes and
+complete license are included in `Sources/Fine/Scenes/ascii-rest/` and in the
+application's resource bundle. Fine supplies native lifecycle and interruption-safe transition adapters;
+the artwork, palette and rendering algorithm are unchanged.
+
+## xterm.js
+
 Fine bundles browser distributions of the following xterm.js components:
 
 - `@xterm/xterm`

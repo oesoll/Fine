@@ -16,9 +16,12 @@ let package = Package(
             name: "Fine",
             dependencies: ["CPty"],
             path: "Sources/Fine",
-            resources: [.copy("Terminal/Resources"), .process("HarnessIcons.xcassets")]
+            resources: [.copy("Terminal/Resources"), .copy("Scenes"), .process("HarnessIcons.xcassets")]
         ),
         .executableTarget(name: "FineCLI", path: "Sources/FineCLI"),
+        // 탭 셸을 LSUIElement 번들 이름으로 띄우는 도우미. package-app.sh가
+        // Contents/Helpers/FineAgent.app으로 묶는다 (Sources/FineAgent/main.swift 참고).
+        .executableTarget(name: "FineAgent", path: "Sources/FineAgent"),
         .testTarget(
             name: "FineTests",
             dependencies: ["Fine"],

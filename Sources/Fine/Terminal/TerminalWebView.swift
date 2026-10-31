@@ -263,13 +263,14 @@ final class TerminalWebView: NSView {
     /// 외형이 바뀌면 같은 하네스의 반대편 팔레트로 다시 칠한다.
     /// 터미널은 SwiftUI 밖(WKWebView)이라 colorScheme 환경이 닿지 않는다.
     private func observeAppearance() {
-        NotificationCenter.default.addObserver(
-            forName: FineAppearance.didChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.palette = .forHarness(self.harness, isDark: FineAppearance.isDarkNow)
-                self.applyTheme()
+        // 외형뿐 아니라 홈 배경이 장면↔단색으로 바뀌어도 바탕(투명/불투명)이 바뀐다.
+        for name in [FineAppearance.didChange, HomeArtworkMode.didChange] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.palette = .current(self.harness)
+                    self.applyTheme()
+                }
             }
         }
     }
@@ -282,7 +283,7 @@ final class TerminalWebView: NSView {
             completionHandler: nil
         )
         guard let theme = palette.json else { return }
-        let contrast = palette.minimumContrastRatio > 1 ? ", \(palette.minimumContrastRatio)" : ""
+        let contrast = ", \(palette.minimumContrastRatio)"
         webView.evaluateJavaScript("window.smSetTheme(\(theme)\(contrast))", completionHandler: nil)
     }
 

@@ -7,6 +7,80 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage("fineAppearance") private var appearance = FineAppearance.system.rawValue
     @AppStorage("sidebarWidth") private var sidebarWidth = Double(FineTheme.sidebarWidth)
+    @AppStorage(SidebarCollapse.storageKey) private var sidebarCollapsed = false
+    @State private var sidebarPeeking = false
+    @State private var peekHide: DispatchWorkItem?
+    /// 감상 모드(홈 배경을 눌러 UI를 숨김). 홈에서만 의미가 있다.
+    @State private var immersive = false
+    @State private var immersiveKeyMonitor: Any?
+
+    private var homeUIHidden: Bool { immersive && appState.selectedSession == nil }
+    @ObservedObject private var backgrounds = HomeBackgroundSettings.shared
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var artwork: Bool {
+        HomeArtworkMode.isActive(isDark: colorScheme == .dark, reduceTransparency: reduceTransparency,
+                                 settings: backgrounds)
+    }
+
+    private var workspace: some View {
+        ZStack {
+            // 홈 배경이 장면이면 홈은 대화 탭 뒤에서도 살아 있다 — 장면이 끊기지 않고 돌고,
+            // 사이드바는 전환 때 아무것도 바뀌지 않는다. 내용(인사말·입력창)만 숨는다.
+            if appState.selectedSession == nil || artwork {
+                QuickHomeView()
+                    .environment(\.homeInBackground, appState.selectedSession != nil)
+                    .transition(.opacity)
+            }
+            if let session = appState.selectedSession {
+                AgentTerminalView(session: session)
+                    .id(session.id)
+                    // 접혀 있으면 신호등이 터미널 첫 줄 위에 앉는다. 그만큼 내린다.
+                    .padding(.top, sidebarCollapsed ? 28 : 0)
+                    // 장면 위에서는 흐린 장면 위의 검은 유리. 터미널 바탕은 비워 둔다.
+                    .background(artwork ? Color.black.opacity(0.6) : FineTheme.workspace)
+                    // 사이드바가 겹쳐 나와 있으면 그 밑은 비운다 — 검은 유리가 한 겹 더 깔려
+                    // 고정 사이드바보다 어둡게 보였다. 밑에는 고정일 때와 같은 흐린 장면만 남는다.
+                    .mask(alignment: .trailing) {
+                        Rectangle().padding(.leading, artwork && sidebarCollapsed && sidebarPeeking ? sidebarWidth : 0)
+                    }
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.homeArtworkBleed, sidebarCollapsed ? 0 : sidebarWidth)
+        // 겹쳐 나온 사이드바 밑도 장면 페이지가 흐린다.
+        .environment(\.homeSidebarOverlay, sidebarCollapsed && sidebarPeeking ? sidebarWidth : 0)
+        .background(FineTheme.workspace)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: appState.selectedSession?.id)
+    }
+
+    /// 펼침 고정 ↔ 접힘. 겹쳐 나온 상태에서 누르면 그 자리에 고정된다 — 사이드바는 이미
+    /// 보이는 자리에 있으므로 움직이지 않고, 작업부만 비켜선다.
+    private func toggleSidebar() {
+        peekHide?.cancel()
+        if sidebarCollapsed && sidebarPeeking {
+            sidebarCollapsed = false
+        } else {
+            sidebarCollapsed.toggle()
+        }
+        sidebarPeeking = false
+    }
+
+    private func setPeeking(_ on: Bool) {
+        peekHide?.cancel()
+        guard sidebarPeeking != on else { return }
+        sidebarPeeking = on
+    }
+
+    /// 마우스가 잠깐 비껴 나가도 바로 닫지 않는다 — 가장자리를 스치는 손은 흔하다.
+    private func scheduleHidePeek() {
+        peekHide?.cancel()
+        let work = DispatchWorkItem { sidebarPeeking = false }
+        peekHide = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
 
     init(windowStateID: Binding<UUID?> = .constant(nil)) {
         _sceneWindowStateID = windowStateID
@@ -16,29 +90,83 @@ struct ContentView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            QuickSidebarView()
-                .frame(width: sidebarWidth)
-                // 손잡이는 레이아웃을 차지하지 않는다. 폭을 가진 요소로 두면
-                // 사이드바와 작업부 사이에 그만큼 빈 띠가 생긴다.
-                .overlay(alignment: .trailing) {
-                    SidebarDivider(width: $sidebarWidth)
-                        .offset(x: 5)
-                }
-
-            ZStack {
-                if let session = appState.selectedSession {
-                    AgentTerminalView(session: session)
-                        .id(session.id)
-                        .transition(.opacity)
-                } else {
-                    QuickHomeView()
-                        .transition(.opacity)
-                }
+        // 사이드바는 하나다. 고정이면 자리를 차지하고(왼쪽 자리 비움), 접히면 왼쪽 밖으로
+        // 나가고, 호버하면 같은 사이드바가 작업부 위로 들어온다. 둘을 갈아 끼우면 고정 순간에
+        // 한쪽이 빠지고 한쪽이 들어오는 움직임이 보였다.
+        let shown = (!sidebarCollapsed || sidebarPeeking) && !homeUIHidden
+        ZStack(alignment: .topLeading) {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth)
+                workspace
+                    .environment(\.homeImmersive, $immersive)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(FineTheme.workspace)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: appState.selectedSession?.id)
+
+            QuickSidebarView()
+                .environment(\.sidebarFloating, sidebarCollapsed)
+                .frame(width: sidebarWidth)
+                .frame(maxHeight: .infinity)
+                // 손잡이는 레이아웃을 차지하지 않는다. 고정일 때만 폭을 바꿀 수 있다.
+                .overlay(alignment: .trailing) {
+                    if !sidebarCollapsed {
+                        SidebarDivider(width: $sidebarWidth)
+                            .offset(x: 5)
+                    }
+                }
+                .shadow(color: .black.opacity(sidebarCollapsed && sidebarPeeking ? 0.22 : 0), radius: 18, x: 4)
+                .offset(x: shown ? 0 : -(sidebarWidth + 24))
+                .onHover { inside in
+                    guard sidebarCollapsed else { return }
+                    if inside { peekHide?.cancel() } else { scheduleHidePeek() }
+                }
+                .allowsHitTesting(shown)
+                .accessibilityHidden(!shown)
+                .zIndex(1)
+
+            // 접힌 동안: 왼쪽 가장자리에 마우스를 대면 사이드바가 겹쳐 나온다.
+            // 감상 모드: 어디를 눌러도 UI가 돌아온다.
+            if homeUIHidden {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { immersive = false }
+                    .zIndex(4)
+            }
+
+            if sidebarCollapsed && !sidebarPeeking && !homeUIHidden {
+                Color.clear
+                    .frame(width: 6)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { if $0 { setPeeking(true) } }
+                    .zIndex(2)
+            }
+
+            // ⌃⌘S — macOS 사이드바 토글. 접힌 동안에도 듣도록 사이드바 밖에 둔다.
+            Button("") { toggleSidebar() }
+                .keyboardShortcut("s", modifiers: [.control, .command])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+        .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 1), value: sidebarCollapsed)
+        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 1), value: sidebarPeeking)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: homeUIHidden)
+        .onChange(of: appState.selectedSession?.id) { immersive = false }
+        // 키보드를 누르면 UI가 돌아온다. 그 키는 UI를 부르는 데 쓰고 흘려보내지 않는다 —
+        // 입력칸이 아직 포커스를 받기 전이라 글자가 엉뚱한 곳에 떨어진다.
+        .onChange(of: homeUIHidden) { _, hidden in
+            if hidden {
+                immersiveKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    guard immersive else { return event }
+                    immersive = false
+                    return nil
+                }
+            } else if let monitor = immersiveKeyMonitor {
+                NSEvent.removeMonitor(monitor)
+                immersiveKeyMonitor = nil
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: SidebarCollapse.toggle)) { note in
+            if (note.object as AnyObject?) === appState { toggleSidebar() }
         }
         .background(Color.clear)
         // 외형의 출처는 하나여야 한다. preferredColorScheme는 창에 외형을 직접 박는데,

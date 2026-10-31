@@ -16,6 +16,16 @@ final class HomePresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testSmallAuroraFitsBothThemesAndWindowSizes() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            for size in [CGSize(width: 512, height: 520), CGSize(width: 1000, height: 800)] {
+                try renderAndCheck(name: "aurora-window-\(scheme)-\(size.width)", size: size,
+                                   background: .auroraWindow, scheme: scheme)
+            }
+        }
+    }
+
+    @MainActor
     func testLongModelAndMultilinePromptRemainInsideMinimumWindow() throws {
         try renderAndCheck(
             name: "long-prompt", size: CGSize(width: 512, height: 520),
@@ -48,10 +58,16 @@ final class HomePresentationTests: XCTestCase {
 
     @MainActor
     private func renderAndCheck(
-        name: String, size: CGSize, prompt: String = "", modelName: String = "GPT-6-Astra"
+        name: String, size: CGSize, prompt: String = "", modelName: String = "GPT-6-Astra",
+        background: HomeBackground = .forest, scheme: ColorScheme = .light
     ) throws {
         let geometry = HomeGeometry()
-        let root = QuickHomePresentation {
+        let suite = "HomePresentationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let backgrounds = HomeBackgroundSettings(defaults: defaults)
+        backgrounds.select(background, for: scheme == .dark ? .dark : .light)
+        let root = QuickHomePresentation(backgrounds: backgrounds) {
             VStack(spacing: 14) {
                 QuickHomeComposer(prompt: .constant(prompt), onSubmit: {}) {
                     QuickHomeControls {
@@ -79,7 +95,7 @@ final class HomePresentationTests: XCTestCase {
         }
         .coordinateSpace(name: "homeTest")
         .onPreferenceChange(HomeFrames.self) { geometry.frames = $0 }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(scheme)
         let hosting = NSHostingView(rootView: root)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -87,9 +103,29 @@ final class HomePresentationTests: XCTestCase {
         )
         window.contentView = hosting
         hosting.frame = NSRect(origin: .zero, size: size)
-        for _ in 0..<6 {
+        // Appearance can settle after the first hosting layout. Wait for the
+        // interrupted layout spring before asserting the final card geometry.
+        for _ in 0..<20 {
             hosting.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.04))
+        }
+        func scene(in view: NSView) -> OriginalASCIISceneNSView? {
+            (view as? OriginalASCIISceneNSView) ?? view.subviews.lazy.compactMap { scene(in: $0) }.first
+        }
+        let backdrop = try XCTUnwrap(scene(in: hosting), "missing full-window forest in \(name)")
+        let backdropFrame = backdrop.convert(backdrop.bounds, to: hosting)
+        if background == .auroraWindow {
+            XCTAssertGreaterThan(backdropFrame.minX, 0, name)
+            XCTAssertGreaterThan(backdropFrame.minY, 0, name)
+            XCTAssertLessThanOrEqual(backdropFrame.maxX, size.width, name)
+            XCTAssertLessThanOrEqual(backdropFrame.maxY, size.height, name)
+            XCTAssertEqual(backdropFrame.width / backdropFrame.height, 2, accuracy: 0.01, name)
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(geometry.frames["composer"]).minY, backdropFrame.maxY, name)
+        } else {
+            XCTAssertEqual(backdropFrame.minX, 0, accuracy: 1, name)
+            XCTAssertEqual(backdropFrame.minY, 0, accuracy: 1, name)
+            XCTAssertEqual(backdropFrame.width, size.width, accuracy: 1, name)
+            XCTAssertEqual(backdropFrame.height, size.width / 2, accuracy: 1, name)
         }
         for key in ["harness", "options", "send", "composer"] {
             let frame = try XCTUnwrap(geometry.frames[key], "missing \(key) in \(name)")

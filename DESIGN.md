@@ -13,7 +13,7 @@ output. Presentation and metadata scheduling stay separate from the child CLI.
 ## 2. Color and material
 
 - `canvas`: system white (`NSColor.textBackgroundColor`)
-- `ink`: system label color; terminal ANSI remains `#000000`
+- `ink`: system label color; terminal ANSI uses the role palette below
 - `secondaryInk`: system secondary label color
 - `divider`: black at 7% opacity
 - `hoverFill`: black at 4% opacity
@@ -30,17 +30,29 @@ output. Presentation and metadata scheduling stay separate from the child CLI.
 Outside the new-conversation home, glass is restricted to the sidebar. It uses native material over a truly
 transparent window, a restrained top-left luminance veil, and a one-point
 refractive edge beside the workspace. It uses no outer drop shadow. The
-terminal never uses blur, tint, or translucent text. The home composer uses
-a translucent white surface with opaque text.
+terminal never uses blur, tint, or translucent text. The home composer stays
+clear system Liquid Glass (macOS 26+), tinted per theme (October 2026): night
+`#090B13` at 62% on dark, milk white at 55% on paper. The earlier 12% tint let
+the placeholder vanish into city lights; an opaque card read better but lost the
+glass, so only the tint deepened. The suggestion pills use the same glass and
+tint. Older systems get the same colour over ultra-thin material; Reduce
+Transparency makes it solid.
 
 ## 3. Typography
 
 - UI body: SF Pro system, 13 pt, medium
 - Section label: SF Pro system, 10 pt, semibold, +0.25 tracking
-- Home title: SF Pro system, 28–34 pt, medium, -1.1 tracking
+- Home eyebrow: 12 pt with a breathing cyan signal dot, above the title
+- Home title: Pretendard Regular, 30–38 pt, -1.4 tracking; the last word carries a
+  pale cyan → lavender gradient (deep teal → violet on paper). Words resolve
+  from a 10 pt blur one by one (70 ms stagger, critically damped) when the line changes
+- Home prompt: Pretendard Regular 16 pt; captions Pretendard 11.5 pt
+- Machine voice (key hints, Latin-only chips, timers): SF Mono 11–12 pt. Labels
+  containing Hangul use Pretendard instead — monospaced fonts have no Hangul,
+  and the fallback kept monospaced spaces, so words drifted apart
 - Prompt: SF Pro system, 16 pt, regular
 - Metadata: SF Pro system, 10 pt, medium, tabular where numeric
-- Terminal: bundled xterm configuration and black ANSI palette
+- Terminal: bundled xterm configuration and the role-based ANSI palette
 - Terminal status: SF Mono, 10 pt, medium
 
 Korean text must remain legible without artificial uppercase transformation.
@@ -144,9 +156,16 @@ provider, default option, keyboard focus.
 
 ### `WhiteTerminal`
 
-Edge-to-edge white xterm surface. ANSI foreground colors resolve to black.
-Claude alone uses a light gray ANSI 100 prompt background and 4.5:1 minimum
-text contrast; Codex and OpenCode retain the original unmodified palette.
+Edge-to-edge xterm surface (white / neutral #1e1e1e). The 16 ANSI slots are
+painted by role, not by name, because Claude's `*-ansi` themes emit 97 for
+emphasis, 37 for secondary text, 94 for inline code and links, 91 for its
+accent, and 31/33/34/36 for syntax: so light mode maps 97 to near-black and 37
+to gray. Accents are a few calm glamour-like hues (claude-mods' glamour-dark was
+the reference; nothing is injected into the agent). One palette serves every
+harness, with a 4.5:1 minimum contrast so Codex's truecolor (dark-tuned)
+highlighting stays legible in light mode. ANSI 100 remains the submitted-prompt
+surface. Sessions drop an inherited NO_COLOR. `TerminalColorCaptureTests`
+(FINE_CAPTURE=1) renders real captured Claude/Codex screens in both themes.
 The glyph grid uses the terminal content inset so prompts do not touch the
 window edge. Fine clips Claude Code's final built-in hint row and replaces it
 with a compact status rail showing the session's actual provider/model and
@@ -205,11 +224,79 @@ States: loading/blank, interactive, resumed, error.
 
 ## New-conversation home (September 2026)
 
-The home is a quiet opening scene: warm ivory paper, a static ASCII mountain
-landscape, a milk-glass veil, and one translucent white composer. The landscape
-is generated from a fixed character field and drawn with SwiftUI Canvas. It
-uses no image download, timer, shader, or animation loop. A specific photograph
-can replace the procedural landscape if future art direction calls for one.
+Light and dark mode each remember their own background: all 15 ascii.rest landscapes,
+a small Aurora window, the user's photo, or a plain surface. Light defaults
+to the forest; dark keeps the existing photo (including the user's Overdose
+artwork). Images stay outside the repository.
+
+Panoramas sit at the top of the workspace and fade into the theme's base colour
+using the same mask and lower gradient as the original dark album composition.
+ASCII panoramas take min(62% of width, 90% of height) with proportional cover
+scaling; the artwork mask holds full strength to 60% and the page fade starts at
+70% of the window, so the scene reads behind the glass composer. Home text picks
+white/black from the median luminance under it (the gap color of a dot field)
+and carries a soft wide halo instead of a hard outline. The bottom-right glass
+chip names the current background and credits ascii.rest.
+
+When the home background is a full-window scene (artwork mode), the scene is
+window-level: it bleeds under the sidebar (`homeArtworkBleed`) and stays alive
+behind conversation tabs (`homeInBackground` hides only the home content). The
+sidebar becomes a veil over it (base 55%/60% plus a faint even lift, no sheen),
+and the scene page blurs the sidebar band itself (`#sidebar-blur`, 6px) so one
+renderer animates both sides with no material tint. Behind a conversation the
+whole scene blurs (10px) and the terminal draws on a 60% black glass with a
+transparent xterm background and the dark role palette (`TerminalPalette.overArtwork`).
+The composer is clear glass with a faint tint; legibility comes from text that
+inverts with the measured luminance behind it plus an opposite-colour halo, not
+from a heavier tint. Composer controls take their surface from the glass's
+scheme (`fineControlSurface`), not the window's. Small Aurora, plain, and Reduce
+Transparency keep the opaque terminal and desktop-glass sidebar.
+
+The sidebar collapses (toggle beside the appearance toggle, ⌃⌘S). It is one view
+moved by offset: collapsed it slides off the leading edge; a 6pt hot zone on the
+left edge brings it over the workspace (same veil, light shadow, and the
+terminal and its black glass are cleared beneath it); pinning from there only
+moves the workspace. Clicking empty home background enters a viewing mode: the
+greeting, composer, chip and sidebar fade away and the scene stays; any click
+or key brings them back (the key is consumed) and refocuses the composer. The white/blue radial
+glow behind the composer is removed; only the artwork mask and lower fade remain. The small Aurora option preserves a complete
+2:1 scene between the greeting and composer, in either theme. The original
+200 × 100 grids, palettes and 15 fps motion are unchanged. Reduce Transparency
+removes decorative artwork. The input remains a light surface in light mode.
+
+The bottom-right background button and View → Home Background open an in-window
+picker with independent light/dark choices. Command–Left/Right on the home cycles
+available backgrounds on key release; holding either chord for 0.5 seconds opens
+the picker without changing the current background. Repeat events are consumed,
+and losing window focus cancels the pending press. Plain arrow keys and terminal
+line-navigation chords remain untouched. Command–Up/Down select the previous/next
+conversation using the same shared navigation path as the existing CLI.
+
+The unmodified TypeScript scene and canvas renderer are vendored under
+`Sources/Fine/Scenes/ascii-rest/` with the MIT license and pinned commit/hashes.
+A small lifecycle adapter is bundled with `bun build Sources/Fine/Scenes/scene.ts
+--target browser --format iife --outfile Sources/Fine/Scenes/scene.js`. Normal
+Swift builds use the checked-in JavaScript and need no JavaScript toolchain or
+network access. A nonpersistent WKWebView loads only local files, with a CSP
+blocking network requests. Native visibility, Reduce Motion and Low Power Mode
+pause playback; resuming continues from the same scene time. The artwork never
+accepts pointer input. A single live WebView survives selection changes. The next
+scene renders before a 220 ms ease-out crossfade releases the previous pixels.
+Interrupting a fade starts from the composited presentation, not an old target;
+only two canvas layers exist, and only the current scene animates. Scene clocks
+survive switching away and back. Reduced Motion switches without the fade.
+
+Picker tiles use bundled static PNGs generated from the original canvas with
+`swift scripts/generate-scene-previews.swift Sources/Fine/Scenes`. No live WebViews
+are created by the picker. Arrow keys follow its three-column grid, Return closes
+it, Escape dismisses, and focus returns to the composer. Changing the picker mode
+also changes the visible app mode, so preview and saved choice stay consistent.
+
+Headline, note and caption choose the stronger black/white contrast against their
+actual screen region: image crop, artwork mask, theme scrim, and lower fade are
+included. Scene first frames provide stable lighting estimates; photos use their
+actual pixels. A small text shadow separates glyphs from the halftone pattern
+without restoring the removed white/blue bloom.
 
 The headline and supporting sentence are centered above the composer. The
 composer remains bounded at 720 pt, with 22 pt text insets and a visible focus
@@ -227,6 +314,36 @@ popover crash path. HomePresentationTests render minimum, normal, and wide
 workspace sizes plus a long-input state to
 `.build/home-design-review/` for visual inspection.
 
+
+## Home direction (October 27, 2026)
+
+Reference: the "kurage" ASCII home. Every ASCII scene is dots on black, so a
+workspace with a panorama behind it is night-based in both themes: the page
+base, fade, scrim and composer are dark even when the app is light. The light
+theme's ivory fade under a night scene had split the screen in two and turned
+the conversation tab's black glass muddy at the bottom. Paper remains for plain
+and small-window backgrounds.
+
+Home text keeps the theme's ink. It no longer flips black/white from sampled
+luminance, which split one sentence into differently lit words. Legibility comes
+from a faint, wide ellipse of the page base colour blurred 30 pt behind each text
+block — just enough to quiet the dots, never a visible plate.
+
+Below the composer, outlined pills offer `/찾기` and up to three recent
+conversations that are not already open (click resumes). Controls are outlined
+pills (9 pt radius, 32 pt high), the find action is a ghost icon, the right
+edge shows `↩ 보내기 · ⌥↩ 줄바꿈` and an outlined ↗ send square that fills
+with ink once there is text. A static hairline grid (28 pt, 3.5% white) sits over
+night scenes, masked by the same fade.
+
+Sidebar status dots speak only when something differs: breathing cyan while
+working, amber when the agent waits on you, red on error, a hollow ring when the
+process stopped. A running, quiet tab shows no dot.
+
+Recent times are the last exchanged message, not the file modification time:
+resuming a Claude transcript appends bookkeeping records, and Codex bumps
+`updated_at` on resume, so restarting Fine had stamped every open conversation
+"just now". Claude uses the last user/assistant `timestamp`; Codex uses `recency_at`.
 
 ## Mixed-harness recent conversations
 

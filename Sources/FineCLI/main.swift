@@ -15,9 +15,11 @@ fine — Fine을 터미널에서 조작한다
   fine window focus|close <win>             창 앞으로/닫기
 
   fine list [--harness H] [-n N]            최근 대화 (claude|codex|opencode)
-  fine new [--harness H] [--model M] [--effort E] [--proxy] [prompt…]
+  fine new [--harness H] [--model M] [--effort E] [--proxy] [--top] [prompt…]
                                             새 대화 (지정 안 한 값은 컴포저의 현재 기본값)
   fine resume <session-id> [--harness H]    대화 이어서 열기
+  fine hide|unhide <session-id>             최근 목록에서 숨기기/되돌리기 (대화 파일은 그대로)
+  fine hidden                               숨긴 대화 ID 목록
   fine find <설명…> [--dry-run]              찾기 모드: Haiku가 최근 대화에서 골라 연다 (열린 탭이면 그 탭으로)
   fine restart <tab> [--model M] [--effort E]
                                             같은 대화를 다른 모델로 재시작
@@ -45,6 +47,10 @@ fine — Fine을 터미널에서 조작한다
   fine doctor                               준비 상태와 빠진 것을 채우는 명령
   fine theme <tab>                          그 탭의 터미널이 실제로 쓰는 색
   fine ping
+
+  fine notify <message> [--id task] [--state waiting|blocked|working|done|error]
+                          [--title title] [--host mac]
+  fine notifications [list|show|status|dismiss <id>|open <id>]
 
 옵션: --json (원본 JSON), -w/--window <index|id 접두사|front>, --no-focus
 <win>은 index / id 접두사 / front, <tab>은 index / 이름 / session-id / id 접두사
@@ -108,6 +114,13 @@ func bridge(_ command: String, _ target: String, _ arguments: [String]) throws -
 }
 
 // MARK: - 인자 파싱
+
+do {
+    if try handleAttentionCLI(Array(CommandLine.arguments.dropFirst())) { exit(0) }
+} catch {
+    FileHandle.standardError.write(Data("fine: \(error)\n".utf8))
+    exit(1)
+}
 
 var argv = Array(CommandLine.arguments.dropFirst())
 var wantJSON = false
@@ -183,9 +196,15 @@ do {
         let prompt = Array(positional.dropFirst()).joined(separator: " ")
         if !prompt.isEmpty { args["prompt"] = prompt }
         modelFlags(); if flags["proxy"] != nil { args["proxy"] = true }
+        // Fine 탭 안의 에이전트가 띄운 탭은 그 탭 아래 하위 탭으로 묶인다. --top이면 묶지 않는다.
+        if flags["top"] == nil, let tab = ProcessInfo.processInfo.environment["FINE_TAB_ID"] { args["parent"] = tab }
     case ("resume", _):
         guard let id = sub else { throw CLIError(message: "usage: fine resume <session-id>") }
         command = "session.resume"; args["id"] = id
+    case ("hide", _), ("unhide", _):
+        guard let id = sub else { throw CLIError(message: "usage: fine \(group) <session-id>") }
+        command = "conversations.\(group)"; args["id"] = id
+    case ("hidden", _): command = "conversations.hidden"
     case ("find", _):
         // 따옴표 없이 써도 되게 나머지 단어를 전부 설명으로 받는다.
         let query = ([sub].compactMap { $0 } + rest).joined(separator: " ")
@@ -291,6 +310,9 @@ func render(command: String, result: Any) -> String {
     case "conversations.list":
         let rows = (result as? [[String: Any]] ?? []).map { c in [str(c["harness"]), str(c["id"]), String(str(c["modifiedAt"]).prefix(16)), str(c["title"])] }
         return table([["harness", "session-id", "modified", "title"]] + rows)
+    case "conversations.hidden":
+        let ids = result as? [String] ?? []
+        return ids.isEmpty ? "(none)" : ids.joined(separator: "\n")
     case "tab.transcript":
         guard let dict = result as? [String: Any] else { return "\(result)" }
         return (dict["messages"] as? [[String: Any]] ?? []).map { m in

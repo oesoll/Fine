@@ -2,55 +2,70 @@ import XCTest
 @testable import Fine
 
 final class TerminalThemeTests: XCTestCase {
-    func testLightPaletteRendersEveryANSIColorAsBlack() throws {
-        let colors = TerminalPalette.quickLight.colors
-        let ansi16 = [
-            "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-            "brightBlack", "brightRed", "brightGreen", "brightYellow",
-            "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
-        ]
-        XCTAssertEqual(colors["background"], "#ffffff")
-        XCTAssertEqual(colors["foreground"], "#000000")
-        XCTAssertEqual(Set(ansi16.compactMap { colors[$0] }), ["#000000"])
-        XCTAssertNotNil(TerminalPalette.quickLight.json)
-    }
-    func testClaudePromptBackgroundHasContrastWithoutChangingCodexOrOpenCode() {
-        let claude = TerminalPalette.forHarness(.claude)
-        // Real Claude capture: ESC[100m background with ESC[97m prompt text.
-        XCTAssertEqual(claude.colors["brightBlack"], "#eeeeec")
-        XCTAssertEqual(claude.colors["brightWhite"], "#000000")
-        XCTAssertEqual(claude.minimumContrastRatio, 4.5)
-        let changedColors = claude.colors.keys.filter { claude.colors[$0] != TerminalPalette.quickLight.colors[$0] }
-        XCTAssertEqual(changedColors, ["brightBlack"])
-        XCTAssertEqual(TerminalPalette.forHarness(.codex), .quickLight)
-        XCTAssertEqual(TerminalPalette.forHarness(.opencode), .quickLight)
-        XCTAssertEqual(TerminalPalette.quickLight.minimumContrastRatio, 1)
+    static let ansi16 = [
+        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+        "brightBlack", "brightRed", "brightGreen", "brightYellow",
+        "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+    ]
+
+    static func contrast(_ a: String, _ b: String) throws -> Double {
+        func luminance(_ hex: String) throws -> Double {
+            let value = try XCTUnwrap(Int(hex.dropFirst(), radix: 16))
+            func channel(_ shift: Int) -> Double {
+                let c = Double((value >> shift) & 0xff) / 255
+                return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+        }
+        let (x, y) = (try luminance(a), try luminance(b))
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 
-}
-
-extension TerminalThemeTests {
-    /// 다크는 라이트의 반전이다 — 바탕과 글자가 뒤집히고, 장식색은 여전히 한 색으로 고정된다.
-    func testDarkPaletteInvertsLightAndStaysMonochrome() {
-        let light = TerminalPalette.forHarness(.codex, isDark: false)
-        let dark = TerminalPalette.forHarness(.codex, isDark: true)
-
-        XCTAssertEqual(light.colors["background"], "#ffffff")
-        XCTAssertEqual(light.colors["foreground"], "#000000")
-        // 바탕은 검정보다 어둡지 않되 홈 화면과 같은 푸른 기의 검정이다.
-        XCTAssertNotEqual(dark.colors["background"], "#ffffff")
-        XCTAssertNotEqual(dark.colors["foreground"], dark.colors["background"])
-
-        let ansi = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-                    "brightRed", "brightGreen", "brightYellow", "brightBlue",
-                    "brightMagenta", "brightCyan", "brightWhite"]
-        // 라이트가 ANSI를 전부 한 색으로 고정하듯 다크도 그래야 한다.
-        for key in ansi {
-            XCTAssertEqual(light.colors[key], light.colors["foreground"], "light \(key)")
-            XCTAssertEqual(dark.colors[key], dark.colors["foreground"], "dark \(key)")
+    func testEveryANSISlotIsAnExplicitColorAndHuesAreDistinct() throws {
+        for isDark in [false, true] {
+            let colors = TerminalPalette.forHarness(.claude, isDark: isDark).colors
+            for key in Self.ansi16 {
+                XCTAssertTrue(try XCTUnwrap(colors[key]).hasPrefix("#"), key)
+            }
+            // 단색으로 눌러 위계를 지우던 정책으로 돌아가지 않는다.
+            let accents = ["red", "green", "yellow", "blue", "magenta", "cyan", "brightBlue", "brightRed"]
+            XCTAssertEqual(Set(accents.compactMap { colors[$0] }).count, accents.count)
+            XCTAssertNotNil(TerminalPalette.forHarness(.claude, isDark: isDark).json)
         }
     }
 
+    /// Claude `*-ansi` 테마의 실제 출력: 97은 본문 강조, 37은 보조 글자, 94는 인라인 코드·링크.
+    /// 이름이 아니라 역할로 읽혀야 한다 — 라이트에서 97이 희면 흰 바탕에서 사라진다.
+    func testClaudeANSIRolesReadOnBothBackgrounds() throws {
+        for isDark in [false, true] {
+            let palette = TerminalPalette.forHarness(.claude, isDark: isDark)
+            let c = palette.colors
+            let bg = try XCTUnwrap(c["background"])
+            let emphasis = try Self.contrast(XCTUnwrap(c["brightWhite"]), bg)
+            let body = try Self.contrast(XCTUnwrap(c["foreground"]), bg)
+            let secondary = try Self.contrast(XCTUnwrap(c["white"]), bg)
+            XCTAssertGreaterThanOrEqual(emphasis, body, "강조는 본문보다 약하면 안 된다")
+            XCTAssertGreaterThan(body, secondary, "보조 글자는 본문보다 한 단 물러나야 한다")
+            XCTAssertGreaterThanOrEqual(secondary, 4.5)
+            for key in ["red", "green", "yellow", "blue", "magenta", "cyan", "brightBlue", "brightRed"] {
+                XCTAssertGreaterThanOrEqual(try Self.contrast(XCTUnwrap(c[key]), bg), 4.5, "\(isDark ? "dark" : "light") \(key)")
+            }
+            // truecolor로 직접 칠하는 Codex 강조색을 반대 테마에서도 읽히게 하는 안전망.
+            XCTAssertEqual(palette.minimumContrastRatio, 4.5)
+        }
+    }
+
+    func testOneRolePaletteServesEveryHarness() {
+        for isDark in [false, true] {
+            let claude = TerminalPalette.forHarness(.claude, isDark: isDark)
+            for harness in [QuickHarness.codex, .opencode, .omp] {
+                XCTAssertEqual(TerminalPalette.forHarness(harness, isDark: isDark), claude)
+            }
+        }
+    }
+}
+
+extension TerminalThemeTests {
     /// 제출된 프롬프트 바탕은 라이트에서 바탕보다 어둡고, 다크에서는 바탕보다 밝아야 한다.
     func testClaudePromptSurfaceFlipsWithTheScheme() throws {
         func luminance(_ hex: String) throws -> Double {

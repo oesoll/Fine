@@ -17,6 +17,8 @@ struct QuickSessionSnapshot: Codable, Equatable, Identifiable {
     /// 사용자가 직접 붙인 이름인가. 그렇다면 하네스가 만든 제목이 덮지 않는다.
     /// 예전 상태 파일에는 없던 항목이라 optional이다.
     var isNameUserSet: Bool?
+    /// 이 탭을 띄운(또는 사용자가 묶어 둔) 메인 탭. 사이드바에서 그 아래 한 단 들여 보인다.
+    var parentID: UUID?
 }
 
 struct WindowState: Codable, Identifiable, Equatable {

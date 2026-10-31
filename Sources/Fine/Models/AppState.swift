@@ -9,6 +9,7 @@ final class AppState: ObservableObject {
     private(set) var restoredIsZoomed = false
     private(set) var restoredIsFullscreen = false
 
+    @Published var isBackgroundPickerPresented = false
     @Published var sessions: [TerminalSession] = []
     @Published var selectedSession: TerminalSession? {
         didSet { observeSelectedSession() }
@@ -33,6 +34,7 @@ final class AppState: ObservableObject {
                 TerminalSession(snapshot: $0, configurationStorage: configurationStorage)
             }
             sessions.forEach(bindPersistence)
+            normalizeGroups()
             selectedSession = sessions.first { $0.id == claimed.selectedSessionID }
             resumeRestoredSessions()
         } else {
@@ -76,7 +78,8 @@ final class AppState: ObservableObject {
         initialPrompt: String? = nil,
         resumeSessionId: String? = nil,
         configuration: QuickSessionConfiguration = .default,
-        startImmediately: Bool = true
+        startImmediately: Bool = true,
+        parentID: UUID? = nil
     ) {
         let launch: QuickLaunch
         if let resumeSessionId, QuickSessionIdentifier.isValid(resumeSessionId, for: configuration.harness) {
@@ -95,6 +98,11 @@ final class AppState: ObservableObject {
         )
         bindPersistence(session)
         sessions.append(session)
+        // 에이전트가 자기 탭에서 띄운 탭이면 그 아래로 묶는다.
+        if let parentID, let root = rootID(of: parentID) {
+            session.parentID = root
+            normalizeGroups()
+        }
         selectSession(session)
         if startImmediately { session.startImmediately() }
     }
@@ -173,6 +181,8 @@ final class AppState: ObservableObject {
     func removeSession(_ session: TerminalSession) {
         session.cleanup(force: true)
         sessions.removeAll { $0.id == session.id }
+        // 메인 탭을 닫으면 하위 탭은 풀려서 그 자리에 남는다.
+        for child in sessions where child.parentID == session.id { child.parentID = nil }
         if selectedSession?.id == session.id {
             selectedSession = sessions.first
         }
@@ -198,8 +208,94 @@ final class AppState: ObservableObject {
         guard source != destination else { return false }
         let session = sessions.remove(at: source)
         sessions.insert(session, at: destination)
+        normalizeGroups()
         persistWindowState()
         return true
+    }
+
+    // MARK: - 묶음 (메인 탭 아래 하위 탭)
+
+    /// 묶음의 맨 위 탭. 없는 탭이면 nil.
+    func rootID(of id: UUID) -> UUID? {
+        guard let session = sessions.first(where: { $0.id == id }) else { return nil }
+        if let parent = session.parentID, sessions.contains(where: { $0.id == parent }) { return parent }
+        return session.id
+    }
+
+    func children(of id: UUID) -> [TerminalSession] {
+        sessions.filter { $0.parentID == id }
+    }
+
+    /// 탭 순서가 곧 화면 순서다: 메인 탭 바로 아래 그 하위 탭들. 이 불변식을 지키면 선택 표시,
+    /// ⌘↑↓, `fine tabs` 번호가 따로 계산할 것 없이 사이드바와 맞는다. 묶음은 한 단 —
+    /// 하위의 하위는 맨 위 탭에 붙이고, 사라진 부모를 가리키는 탭은 푼다.
+    func normalizeGroups() {
+        let ids = Set(sessions.map(\.id))
+        for session in sessions {
+            guard let parent = session.parentID else { continue }
+            if parent == session.id || !ids.contains(parent) { session.parentID = nil; continue }
+            if let grand = sessions.first(where: { $0.id == parent })?.parentID, ids.contains(grand) {
+                session.parentID = grand
+            }
+        }
+        // 한 번 더: 위에서 부모가 풀린 경우 그 자식이 여전히 맨 위를 가리키도록.
+        for session in sessions where session.parentID != nil {
+            if sessions.first(where: { $0.id == session.parentID })?.parentID != nil { session.parentID = nil }
+        }
+        var ordered: [TerminalSession] = []
+        for root in sessions where root.parentID == nil {
+            ordered.append(root)
+            ordered.append(contentsOf: sessions.filter { $0.parentID == root.id })
+        }
+        if ordered.map(\.id) != sessions.map(\.id) { sessions = ordered }
+    }
+
+    /// 사이드바 드롭. 가운데에 놓으면 그 행의 묶음으로, 가장자리에 놓으면 그 자리의 단으로 간다.
+    /// 끌어온 탭에 하위 탭이 있었는데 그것이 하위로 들어가면, 그 하위 탭들도 같은 묶음으로 옮긴다.
+    @discardableResult
+    func dropSession(id: UUID, onto targetID: UUID, edge: SessionInsertionEdge) -> Bool {
+        guard id != targetID,
+              let dragged = sessions.first(where: { $0.id == id }),
+              let target = sessions.first(where: { $0.id == targetID }) else { return false }
+        let targetRoot = target.parentID ?? target.id
+        let newParent: UUID?
+        switch edge {
+        case .nest:
+            guard targetRoot != id else { return false }
+            newParent = targetRoot
+        case .before:
+            newParent = target.parentID
+        case .after:
+            // 하위 탭이 달린 메인 탭의 바로 아래는 그 묶음의 첫 자리다.
+            newParent = target.parentID ?? (children(of: target.id).isEmpty ? nil : target.id)
+        }
+        guard newParent != id else { return false }
+        let formerChildren = Set(children(of: id).map(\.id))
+        if newParent != nil {
+            for child in children(of: id) { child.parentID = newParent }
+        }
+        dragged.parentID = newParent
+        if edge == .nest {
+            // 묶음의 끝으로. 함께 옮겨 온 원래 하위 탭들은 그 뒤에 따라온다.
+            let last = sessions.last { $0.parentID == targetRoot && $0.id != id && !formerChildren.contains($0.id) }
+                ?? sessions.first { $0.id == targetRoot }
+            if let last { moveSession(id: id, relativeTo: last.id, edge: .after) }
+        } else {
+            moveSession(id: id, relativeTo: targetID, edge: edge)
+        }
+        normalizeGroups()
+        persistWindowState()
+        return true
+    }
+
+    /// 하위 탭을 묶음에서 풀어 메인 탭 묶음 바로 아래에 둔다.
+    func ungroupSession(id: UUID) {
+        guard let session = sessions.first(where: { $0.id == id }), let parent = session.parentID else { return }
+        session.parentID = nil
+        let last = sessions.last { $0.parentID == parent } ?? sessions.first { $0.id == parent }
+        if let last, last.id != id { moveSession(id: id, relativeTo: last.id, edge: .after) }
+        normalizeGroups()
+        persistWindowState()
     }
 
     func moveSession(id: UUID, by offset: Int) {
@@ -226,6 +322,7 @@ final class AppState: ObservableObject {
     }
 
     func selectSession(_ session: TerminalSession) {
+        isBackgroundPickerPresented = false
         guard selectedSession?.id != session.id else {
             session.focusTerminal()
             return

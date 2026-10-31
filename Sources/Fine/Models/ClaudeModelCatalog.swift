@@ -45,7 +45,9 @@ enum ClaudeModelCatalog {
               let models = config["models"] as? [[String: Any]] else { return [] }
         var seen: Set<String> = []
         return models.compactMap { model in
-            guard let id = model["id"] as? String, id.hasPrefix("claude-"),
+            // 순정 피커가 앞에 두는 `main`만 싣는다. `overflow`는 이전 세대(Fable 5, Opus 5 …)다.
+            guard (model["section"] as? String) != "overflow",
+                  let id = model["id"] as? String, id.hasPrefix("claude-"),
                   let name = model["name"] as? String, !name.isEmpty,
                   runs(on: installedVersion, minimum: model["min_claude_code_version"] as? String),
                   seen.insert(id).inserted else { return nil }

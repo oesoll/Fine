@@ -140,7 +140,8 @@ final class QuickModelSelectionTests: XCTestCase {
 
     func testCodexSelectionAlwaysUsesProxyWhileClaudeCanStayDirect() {
         XCTAssertFalse(QuickSessionConfiguration.default.usesProxy)
-        XCTAssertTrue(
+        // 예전에 라우터 토글을 켜고 저장한 순정 Claude 선택도 순정 하네스로 뜬다.
+        XCTAssertFalse(
             QuickSessionConfiguration(
                 modelID: "claude-sonnet-5",
                 effort: .medium,
@@ -326,11 +327,12 @@ final class QuickModelSelectionTests: XCTestCase {
 
     /// 설치된 CLI가 받아둔 카탈로그를 실제로 읽는지. 예전에는 바이너리를 긁었고,
     /// 2.1.278에서 문자열 배치가 바뀌면서 이 검사가 깨져 있었다.
-    func testInstalledClaudeCatalogContainsOpus5() throws {
+    /// 특정 세대를 적지 않는다 — 카탈로그의 main은 새 모델이 나올 때마다 바뀐다.
+    func testInstalledClaudeCatalogContainsAnOpus() throws {
         let models = ClaudeCLIModelDiscovery.discover()
         try XCTSkipIf(models.isEmpty, "이 기기에 Claude Code 카탈로그 캐시가 없습니다")
-        let opus = try XCTUnwrap(models.first { $0.id == "claude-opus-5" })
-        XCTAssertEqual(opus.displayName, "Opus 5")
+        let opus = try XCTUnwrap(models.first { $0.id.hasPrefix("claude-opus-") })
+        XCTAssertTrue(opus.displayName.hasPrefix("Opus"))
         XCTAssertEqual(opus.harness, .claude)
         XCTAssertTrue(opus.supportedEfforts.contains(.high))
     }
@@ -424,8 +426,10 @@ final class ClaudeModelCatalogTests: XCTestCase {
        "thinking":{"type":"effort","effort_options":[{"id":"low"},{"id":"medium"},{"id":"high"},{"id":"xhigh"},{"id":"max"}]}},
       {"id":"claude-haiku-4-5-20251001","name":"Haiku 4.5","section":"main",
        "thinking":{"type":"none"}},
-      {"id":"claude-sonnet-4-6","name":"Sonnet 4.6","section":"overflow",
-       "thinking":{"type":"effort","effort_options":[{"id":"max"},{"id":"low"},{"id":"medium"},{"id":"high"}]}}
+      {"id":"claude-sonnet-4-6","name":"Sonnet 4.6","section":"main",
+       "thinking":{"type":"effort","effort_options":[{"id":"max"},{"id":"low"},{"id":"medium"},{"id":"high"}]}},
+      {"id":"claude-fable-5","name":"Fable 5","section":"overflow",
+       "thinking":{"type":"effort","effort_options":[{"id":"high"}]}}
     ]}}}
     """
 
@@ -435,6 +439,12 @@ final class ClaudeModelCatalogTests: XCTestCase {
                        ["claude-opus-5", "claude-haiku-4-5-20251001", "claude-sonnet-4-6"])
         XCTAssertEqual(models.map(\.displayName), ["Opus 5", "Haiku 4.5", "Sonnet 4.6"])
         XCTAssertTrue(models.allSatisfy { $0.harness == .claude })
+    }
+
+    /// 순정 피커는 `overflow`(이전 세대)를 앞에 두지 않는다. 섞으면 최신 사이에 Fable 5가 끼어 보인다.
+    func testOverflowSectionIsLeftOut() {
+        let models = ClaudeModelCatalog.parse(Data(sample.utf8))
+        XCTAssertFalse(models.contains { $0.id == "claude-fable-5" })
     }
 
     /// 깊이가 없는 모델은 빈 목록이어야 컴포저가 깊이 칸을 숨긴다.

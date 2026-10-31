@@ -33,6 +33,29 @@ final class QuickConversationScannerTests: XCTestCase {
         XCTAssertEqual(result.map(\.title), ["새 대화", "최종 제목"])
     }
 
+    func testHiddenConversationIsSkippedWithoutShrinkingThePage() throws {
+        let hidden = try writeTranscript([#"{"type":"ai-title","aiTitle":"숨길 대화"}"#], modifiedAt: Date(timeIntervalSince1970: 300))
+        let kept = try writeTranscript([#"{"type":"ai-title","aiTitle":"남길 대화"}"#], modifiedAt: Date(timeIntervalSince1970: 100))
+        let hiddenID = hidden.deletingPathExtension().lastPathComponent
+        var index = TranscriptTitleIndex()
+
+        let rows = QuickConversationScanner.scanClaude(
+            directory: directory, limit: 1, tracked: [hiddenID], index: &index, hidden: [hiddenID]
+        )
+        XCTAssertEqual(rows.rows.map(\.id), [kept.deletingPathExtension().lastPathComponent])
+        XCTAssertEqual(rows.titles[hiddenID], "숨길 대화", "an open tab keeps its title even while hidden")
+        XCTAssertTrue(QuickConversationScanner.merged(rows.rows, [], hidden: [rows.rows[0].id]).isEmpty)
+    }
+
+    func testHiddenStoreTogglesAndPersists() throws {
+        let file = directory.appendingPathComponent("hidden.json")
+        XCTAssertTrue(try HiddenConversations.set("abc", hidden: true, in: file))
+        XCTAssertFalse(try HiddenConversations.set("abc", hidden: true, in: file))
+        XCTAssertEqual(HiddenConversations.load(from: file), ["abc"])
+        XCTAssertTrue(try HiddenConversations.set("abc", hidden: false, in: file))
+        XCTAssertEqual(HiddenConversations.load(from: file), [])
+    }
+
     func testFirstNonMetaUserMessageIsFallbackTitle() throws {
         _ = try writeTranscript([
             #"{"type":"user","message":{"content":"<command-name>/model</command-name>"}}"#,
@@ -84,6 +107,29 @@ final class QuickConversationScannerTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), ["ses_MixedCase", codexID, claude.deletingPathExtension().lastPathComponent])
         XCTAssertEqual(result[0].modifiedAt.timeIntervalSince1970, 300)
         XCTAssertEqual(Set(result.map(\.listID)).count, 3)
+    }
+
+    /// Fine을 재시작하면 resume이 대화 파일에 cost-state 같은 기록을 덧붙여 수정 시각이 바뀐다.
+    /// 최근 시각은 마지막으로 말을 주고받은 때여야 한다.
+    func testResumeBookkeepingDoesNotMoveRecentTime() throws {
+        let claude = try writeTranscript([
+            #"{"type":"user","message":{"content":"첫 질문"},"uuid":"a","timestamp":"2026-10-20T01:00:00.000Z"}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"{\"type\":\"user\",\"timestamp\":\"2030-01-01T00:00:00.000Z\"}"}]},"timestamp":"2026-10-20T02:30:00.000Z"}"#,
+            #"{"type":"cost-state","sessionId":"x","totalCostUSD":0}"#,
+            #"{"type":"bridge-session","sessionId":"x"}"#,
+        ], modifiedAt: Date(timeIntervalSince1970: 1_900_000_000))
+        let store = try makeNativeStore()
+        try sql(store.codexDatabase, """
+            ALTER TABLE threads ADD COLUMN recency_at INTEGER NOT NULL DEFAULT 0;
+            INSERT INTO threads VALUES ('\(UUID().uuidString)', '/tmp/fine', 'Resumed', '', 1900000000, 0, 'cli', 1800000000);
+            INSERT INTO threads VALUES ('\(UUID().uuidString)', '/tmp/fine', 'Never active', '', 1600000000, 0, 'cli', 0);
+            """)
+        let result = QuickConversationScanner.scan(directory: directory, sessionStore: store, workingDirectory: "/tmp/fine")
+        XCTAssertEqual(result.map(\.title), ["Resumed", "첫 질문", "Never active"])
+        XCTAssertEqual(result[0].modifiedAt.timeIntervalSince1970, 1_800_000_000)
+        XCTAssertEqual(result[1].id, claude.deletingPathExtension().lastPathComponent)
+        XCTAssertEqual(result[1].modifiedAt, ISO8601DateFormatter().date(from: "2026-10-20T02:30:00Z"))
+        XCTAssertEqual(result[2].modifiedAt.timeIntervalSince1970, 1_600_000_000)
     }
 
     func testRecentListExcludesOtherProjectsArchivedSubagentsAndMalformedIDs() throws {

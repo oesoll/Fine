@@ -42,21 +42,32 @@ final class AppearanceDiagnosticTests: XCTestCase {
     }
 
     @MainActor
-    func testPreferredColorSchemeActuallyDarkensTheHome() throws {
-        let size = CGSize(width: 760, height: 560)
-        let home = QuickHomePresentation {
-            QuickHomeComposer(prompt: .constant(""), onSubmit: {}) {
-                QuickHomeControls {
-                    HarnessSegmentedControl(selection: .constant(.claude))
-                } options: {
-                    Text("Opus 5 · 높음").font(.system(size: 12))
-                } send: {
-                    Image(systemName: "arrow.up").frame(width: 34, height: 34)
-                }
+    func testPreferredColorSchemeActuallyDarkensTheComposer() throws {
+        let size = CGSize(width: 760, height: 220)
+        let composer = QuickHomeComposer(prompt: .constant(""), onSubmit: {}) {
+            QuickHomeControls {
+                HarnessSegmentedControl(selection: .constant(.claude))
+            } options: {
+                Text("Opus 5 · 높음").font(.system(size: 12))
+            } send: {
+                Image(systemName: "arrow.up").frame(width: 34, height: 34)
             }
         }
-        let light = try render(home.preferredColorScheme(.light), size: size, name: "diag-light")
-        let dark = try render(home.preferredColorScheme(.dark), size: size, name: "diag-dark")
+        // The composer is clear system glass on macOS 26+, which `cacheDisplay` does not
+        // capture — so it sits on the theme's own base, as it does on the home. Real
+        // composites over artwork live in HomeGlassCaptureTests (FINE_CAPTURE=1).
+        // A hosting view with glass inside caches as fully transparent, so draw with
+        // ImageRenderer, which keeps ordinary fills and simply omits the glass.
+        func onBase(_ scheme: ColorScheme) throws -> NSBitmapImageRep {
+            let renderer = ImageRenderer(content: composer
+                .frame(width: size.width, height: size.height)
+                .background(FinePalette.resolve(scheme).base)
+                .environment(\.colorScheme, scheme))
+            let image = try XCTUnwrap(renderer.cgImage)
+            return NSBitmapImageRep(cgImage: image)
+        }
+        let light = try onBase(.light)
+        let dark = try onBase(.dark)
         print("밝기 — light \(String(format: "%.3f", meanBrightness(light))) / dark \(String(format: "%.3f", meanBrightness(dark)))")
         XCTAssertGreaterThan(meanBrightness(light), 0.5, "밝은 테마는 밝아야 한다")
         XCTAssertLessThan(meanBrightness(dark), 0.35, "다크 테마가 실제로 어두워지지 않는다")

@@ -6,6 +6,8 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     let id: UUID
     private(set) var controlFingerprint = UUID().uuidString
     @Published var name: String
+    /// 묶인 메인 탭. 한 단만 — 하위 탭 아래에 또 묶지 않는다(AppState.normalizeGroups).
+    @Published var parentID: UUID?
     /// 사용자가 직접 지은 이름인가. 하네스가 만든 제목이 이것을 덮지 않는다.
     @Published private(set) var isNameUserSet = false
     @Published var isRunning = false
@@ -67,6 +69,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             configurationStorage: configurationStorage
         )
         isNameUserSet = snapshot.isNameUserSet ?? false
+        parentID = snapshot.parentID
     }
 
     func snapshot() -> QuickSessionSnapshot {
@@ -75,7 +78,8 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             name: name,
             conversationID: sessionId,
             configuration: configuration,
-            isNameUserSet: isNameUserSet ? true : nil
+            isNameUserSet: isNameUserSet ? true : nil,
+            parentID: parentID
         )
     }
 
@@ -104,10 +108,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         let view = TerminalWebView(
             frame: .zero,
             // 터미널은 UI에서만 만들어진다. 외형 조회는 메인 액터에 묶여 있다.
-            palette: .forHarness(
-                configuration.harness,
-                isDark: MainActor.assumeIsolated { FineAppearance.isDarkNow }
-            ),
+            palette: MainActor.assumeIsolated { TerminalPalette.current(configuration.harness) },
             statusText: configuration.terminalStatus,
             harness: configuration.harness,
             // OpenCode draws its own input and status rows at the bottom; only
@@ -158,6 +159,9 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
+        // Fine은 색을 그리는 터미널이다. 앱을 에이전트 셸에서 다시 띄우면 그 셸의
+        // NO_COLOR=1이 모든 탭으로 새어 Codex가 색을 통째로 끈다(2026-10 관측).
+        environment.removeValue(forKey: "NO_COLOR")
         // 탭 안의 에이전트가 자기 주소를 알 수 있게 — tmux의 TMUX_PANE에 해당. `fine id`가 읽는다.
         environment["FINE_TAB_ID"] = id.uuidString.lowercased()
         if environment["FINE_HOME"] != nil { environment["HOME"] = FinePaths.home.path }
@@ -175,11 +179,16 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         process.onExit = { [weak self] _ in
             DispatchQueue.main.async { self?.isRunning = false }
         }
+        let launch = Self.agentWrapped(
+            executable: shell,
+            execName: executableName,
+            arguments: Self.launchArguments(launch: effectiveLaunch, configuration: configuration)
+        )
         do {
             try process.start(
-                executable: shell,
-                execName: executableName,
-                arguments: Self.launchArguments(launch: effectiveLaunch, configuration: configuration),
+                executable: launch.executable,
+                execName: launch.execName,
+                arguments: launch.arguments,
                 environment: environment,
                 workingDirectory: directory,
                 cols: view?.lastCols ?? 80,
@@ -384,6 +393,22 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         pty = nil
         terminalView?.removeFromSuperview()
         terminalView = nil
+    }
+
+    /// 탭 셸을 FineAgent.app(LSUIElement) 아래에서 exec하게 감싼다. 안 그러면 탭 안의
+    /// AppKit 도구가 "Fine" 앱으로 등록돼 Dock에 유령 아이콘이 쌓인다 (Sources/FineAgent).
+    /// `swift run`처럼 번들 밖에서 돌 때는 도우미가 없으니 셸을 그대로 띄운다.
+    static func agentWrapped(
+        executable: String,
+        execName: String,
+        arguments: [String],
+        bundleURL: URL = Bundle.main.bundleURL
+    ) -> (executable: String, execName: String, arguments: [String]) {
+        let agent = bundleURL.appendingPathComponent("Contents/Helpers/FineAgent.app/Contents/MacOS/fine-agent").path
+        guard FileManager.default.isExecutableFile(atPath: agent) else {
+            return (executable, execName, arguments)
+        }
+        return (agent, "fine-agent", [executable, execName] + arguments)
     }
 
     static func launchArguments(

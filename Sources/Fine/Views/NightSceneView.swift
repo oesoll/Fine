@@ -11,6 +11,7 @@ import SwiftUI
 /// 중간쯤에서 바탕으로 녹아들어야 컴포저가 그 위에 뜬 것처럼 읽힌다.
 struct NightSceneView: View {
     var reduceMotion = false
+    var theme: HomeSceneTheme = .dark
     @ObservedObject private var scene = HomeSceneImageStore.shared
 
     /// 배경 그림을 찾는 순서:
@@ -22,13 +23,7 @@ struct NightSceneView: View {
     ///
     /// 저작권 있는 그림을 저장소에 넣지 않으려고 기본값을 절차적으로 둔다.
     static var userSceneURL: URL? {
-        // 앱의 데이터 폴더는 FinePaths.home 자체가 아니라 그 아래 `.fine`이다.
-        let directory = sceneDirectory
-        for name in sceneFilenames {
-            let url = directory.appendingPathComponent(name)
-            if FileManager.default.isReadableFile(atPath: url.path) { return url }
-        }
-        return nil
+        HomeSceneLibrary.sceneURL(for: .dark)
     }
 
     /// 사용자가 그림을 두는 자리. 다른 저장소들과 같은 폴더를 쓴다.
@@ -37,10 +32,7 @@ struct NightSceneView: View {
     }
 
     /// 찾는 파일 이름들. 앞의 것이 우선한다.
-    static let sceneFilenames = [
-        "home-scene.png", "home-scene.jpg", "home-scene.jpeg",
-        "home-scene.heic", "home-scene.webp",
-    ]
+    static let sceneFilenames = HomeSceneLibrary.filenames(for: .dark)
 
     /// 그림이 깔려 있으면 배경에 움직이는 것이 없다 — 그때만 한 겹으로 평탄화할 수 있다.
     static var isStatic: Bool {
@@ -55,7 +47,7 @@ struct NightSceneView: View {
         GeometryReader { geometry in
             let height = geometry.size.height
             Group {
-                if let image = scene.image {
+                if let image = scene.image(for: theme) {
                     sceneImage(Image(nsImage: image))
                 } else if Self.bundledArtwork {
                     sceneImage(Image("HomeScene", bundle: .module))
@@ -63,21 +55,9 @@ struct NightSceneView: View {
                     ProceduralNightSky(reduceMotion: reduceMotion)
                 }
             }
-            .frame(width: geometry.size.width, height: max(height * 0.82, 340))
+            .frame(width: geometry.size.width, height: max(height * 0.88, 340))
             .clipped()
-            // 위는 그대로, 아래로 갈수록 투명해진다. 가장자리에서 잘린 티가 나면 안 된다.
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.42),
-                        .init(color: .black.opacity(0.72), location: 0.66),
-                        .init(color: .black.opacity(0.28), location: 0.86),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
+            .mask(HomeSceneFade())
             .frame(maxHeight: .infinity, alignment: .top)
         }
     }
@@ -119,14 +99,24 @@ struct NightSceneView: View {
 final class HomeSceneImageStore: ObservableObject {
     static let shared = HomeSceneImageStore()
     @Published private(set) var image: NSImage?
+    @Published private(set) var lightImage: NSImage?
+
+    func image(for theme: HomeSceneTheme) -> NSImage? { theme == .light ? lightImage : image }
+
+    private func reload() {
+        image = HomeSceneLibrary.sceneURL(for: .dark).flatMap(NightSceneView.loadUserImage(at:))
+        let lightURL = HomeSceneLibrary.sceneURL(for: .light)
+        lightImage = lightURL == HomeSceneLibrary.sceneURL(for: .dark)
+            ? image : lightURL.flatMap(NightSceneView.loadUserImage(at:))
+    }
     private var observer: NSObjectProtocol?
 
     private init() {
-        image = NightSceneView.loadUserImage()
+        reload()
         observer = NotificationCenter.default.addObserver(
             forName: HomeSceneLibrary.didChange, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.image = NightSceneView.loadUserImage() }
+            MainActor.assumeIsolated { self?.reload() }
         }
     }
 
@@ -218,4 +208,12 @@ private enum Stars {
             )
         }
     }()
+}
+
+struct HomeSceneFade: View {
+    var body: some View {
+        LinearGradient(stops: HomeArtworkComposition.mask.map {
+            .init(color: .black.opacity($0.1), location: $0.0)
+        }, startPoint: .top, endPoint: .bottom)
+    }
 }
