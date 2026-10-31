@@ -450,16 +450,16 @@ struct SessionStatusDot: View {
     enum Kind { case working, needsYou, error, stopped }
     let state: Kind?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathing = false
 
     var body: some View {
         ZStack {
             switch state {
             case .working:
-                Circle().fill(Color(red: 0.45, green: 0.80, blue: 0.86))
-                    .frame(width: 5, height: 5)
-                    .shadow(color: Color(red: 0.45, green: 0.80, blue: 0.86).opacity(0.8), radius: breathing ? 4 : 1.5)
-                    .opacity(breathing ? 1 : 0.55)
+                // 작업 중은 느리게 숨 쉰다 — 정지한 점은 "끝났나?"로 읽힌다. 동작 줄이기면 멈춘 점.
+                BreathingDot(color: NSColor(red: 0.45, green: 0.80, blue: 0.86, alpha: 1), diameter: 5,
+                             glow: (1.5, 4), glowOpacity: 0.8, dimOpacity: 0.55, duration: 1.1,
+                             animates: !reduceMotion)
+                    .frame(width: 8, height: 8)
             case .needsYou:
                 Circle().fill(Color(red: 0.95, green: 0.74, blue: 0.36)).frame(width: 6, height: 6)
             case .error:
@@ -471,16 +471,7 @@ struct SessionStatusDot: View {
             }
         }
         .frame(width: 8, height: 8)
-        .onAppear { breathe() }
-        .onChange(of: state) { breathe() }
         .help(helpText)
-    }
-
-    /// 작업 중은 느리게 숨 쉰다 — 정지한 점은 "끝났나?"로 읽힌다. 동작 줄이기면 멈춘 점.
-    private func breathe() {
-        guard state == .working, !reduceMotion else { breathing = state == .working; return }
-        breathing = false
-        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathing = true }
     }
 
     private var helpText: String {

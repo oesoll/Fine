@@ -4,24 +4,19 @@ import SwiftUI
 struct HomeEyebrow: View {
     let text: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var glow = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(HomeAccent.signal)
+            // 빛 번짐이 숨 쉰다. 움직임은 렌더 서버가 돌린다(BreathingDot) — 홈을 띄워 둔 채 쉬어도 앱은 쉰다.
+            BreathingDot(color: NSColor(HomeAccent.signal), diameter: 6, glow: (2, 5), glowOpacity: 0.9,
+                         duration: 1.6, animates: !reduceMotion)
                 .frame(width: 6, height: 6)
-                .shadow(color: HomeAccent.signal.opacity(0.9), radius: glow ? 5 : 2)
             Text(text)
                 .font(FineHomeFont.label(text, size: 12))
                 .tracking(0.4)
                 .lineLimit(1)
                 .homeArtworkText()
                 .opacity(0.78)
-        }
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { glow = true }
         }
     }
 }
