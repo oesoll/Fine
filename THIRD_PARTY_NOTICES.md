@@ -16,7 +16,7 @@ the artwork, palette and rendering algorithm are unchanged.
 
 Fine's terminal is drawn by libghostty, statically linked from
 [Ghostty](https://github.com/ghostty-org/ghostty) (commit `ae0dc1b`, with three small patches in
-`../GhosttyTerminal/scripts/ghostty-patches`). The key and input-method handling in
+https://github.com/oesoll/GhosttyTerminal/tree/main/scripts/ghostty-patches). The key and input-method handling in
 `GhosttyTerminal` is adapted from Ghostty's macOS app (`SurfaceView_AppKit.swift`, `Ghostty.App.swift`).
 
 > https://github.com/ghostty-org/ghostty

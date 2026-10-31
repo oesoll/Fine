@@ -3,7 +3,7 @@ import GhosttyTerminal
 
 /// 대화 탭 하나의 터미널 화면: libghostty 표면 + Fine 상태줄.
 ///
-/// 터미널은 libghostty가 앱 프로세스 안에서 Metal로 그린다(공용 패키지 ~/myworld/GhosttyTerminal —
+/// 터미널은 libghostty가 앱 프로세스 안에서 Metal로 그린다(공용 패키지 GhosttyTerminal —
 /// sm과 같은 엔진). 웹뷰(xterm.js) 때는 탭마다 WebKit 프로세스가 하나씩 떴다(10/31 실측: 탭 7개에
 /// 보조 프로세스 약 650MB).
 ///

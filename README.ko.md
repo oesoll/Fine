@@ -8,7 +8,7 @@
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [中文](README.zh.md)
 
-<a href="https://github.com/NEWBIE0413/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
+<a href="https://github.com/oesoll/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
   <img src="Assets/fine-demo.gif" width="720" alt="">
 </a>
 
@@ -38,11 +38,13 @@ Claude Code, Codex, OpenCode, omp는 각자 자기 터미널에서 돕니다. Fi
 ## 설치
 
 ```sh
-git clone https://github.com/NEWBIE0413/Fine.git
+git clone https://github.com/oesoll/Fine.git
 cd Fine
 ./scripts/package-app.sh release
 ditto .build/Fine.app /Applications/Fine.app
 ```
+
+Apple Silicon 맥, macOS 14 이상에서 돌아갑니다. 처음 빌드할 때 터미널 엔진(약 35MB)을 내려받습니다.
 
 쓰던 에이전트만 있으면 됩니다. 깔려 있는 걸 Fine이 알아서 찾습니다.
 

@@ -1,5 +1,13 @@
 // swift-tools-version:5.9
+import Foundation
 import PackageDescription
+
+// 터미널은 libghostty(GhosttyTerminal 패키지, SpaceManager와 같은 엔진). 옆에 체크아웃이 있으면 그것을
+// 쓰고(엔진·입력을 함께 고치는 맥), 없으면 공개 저장소의 릴리스를 받는다 — 미리 빌드한 엔진이 따라와 zig가 필요 없다.
+let siblingTerminal = Context.packageDirectory + "/../GhosttyTerminal/Package.swift"
+let terminal: Package.Dependency = FileManager.default.fileExists(atPath: siblingTerminal)
+    ? .package(path: "../GhosttyTerminal")
+    : .package(url: "https://github.com/oesoll/GhosttyTerminal.git", from: "0.1.0")
 
 let package = Package(
     name: "Fine",
@@ -10,11 +18,7 @@ let package = Package(
         // ~/bin/fine 으로 복사한다 (README 참고).
         .executable(name: "fine-cli", targets: ["FineCLI"]),
     ],
-    dependencies: [
-        // libghostty 터미널 층. sm(WorkspaceManager)과 같은 엔진·패치·입력 처리를 함께 쓴다.
-        // 이 경로 의존은 SEOL의 맥에서만 풀린다 — 공개 빌드 길은 아직 정하지 않았다(2026-10-31).
-        .package(path: "../GhosttyTerminal"),
-    ],
+    dependencies: [terminal],
     targets: [
         .executableTarget(
             name: "Fine",

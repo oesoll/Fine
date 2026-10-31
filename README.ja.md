@@ -8,7 +8,7 @@
 
 [English](README.md) · [한국어](README.ko.md) · 日本語 · [中文](README.zh.md)
 
-<a href="https://github.com/NEWBIE0413/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
+<a href="https://github.com/oesoll/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
   <img src="Assets/fine-demo.gif" width="720" alt="">
 </a>
 
@@ -38,11 +38,13 @@ Claude Code、Codex、OpenCode、omp はそれぞれ自分のターミナルで�
 ## インストール
 
 ```sh
-git clone https://github.com/NEWBIE0413/Fine.git
+git clone https://github.com/oesoll/Fine.git
 cd Fine
 ./scripts/package-app.sh release
 ditto .build/Fine.app /Applications/Fine.app
 ```
+
+Apple シリコンの Mac(macOS 14 以降)で動きます。最初のビルドでターミナルエンジン(約 35 MB)をダウンロードします。
 
 使いたいエージェントがあれば十分です。入っているものは Fine が見つけます。
 

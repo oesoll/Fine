@@ -8,7 +8,7 @@
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · 中文
 
-<a href="https://github.com/NEWBIE0413/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
+<a href="https://github.com/oesoll/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
   <img src="Assets/fine-demo.gif" width="720" alt="">
 </a>
 
@@ -36,11 +36,13 @@ Claude Code、Codex、OpenCode 和 omp 各自跑在自己的终端里。Fine 把
 ## 安装
 
 ```sh
-git clone https://github.com/NEWBIE0413/Fine.git
+git clone https://github.com/oesoll/Fine.git
 cd Fine
 ./scripts/package-app.sh release
 ditto .build/Fine.app /Applications/Fine.app
 ```
+
+需要搭载 Apple 芯片的 Mac,macOS 14 或更高版本。首次构建时会下载终端引擎(约 35 MB)。
 
 带上你想用的智能体就够了，装了哪些 Fine 会自己找到。
 

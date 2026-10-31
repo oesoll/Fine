@@ -8,7 +8,7 @@
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [中文](README.zh.md)
 
-<a href="https://github.com/NEWBIE0413/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
+<a href="https://github.com/oesoll/Fine/raw/refs/heads/main/Assets/fine-demo.mp4">
   <img src="Assets/fine-demo.gif" width="720" alt="">
 </a>
 
@@ -38,11 +38,13 @@ the question looks.
 ## Install
 
 ```sh
-git clone https://github.com/NEWBIE0413/Fine.git
+git clone https://github.com/oesoll/Fine.git
 cd Fine
 ./scripts/package-app.sh release
 ditto .build/Fine.app /Applications/Fine.app
 ```
+
+Fine needs an Apple Silicon Mac on macOS 14 or later. The first build downloads its terminal engine (about 35 MB).
 
 Bring the agents you want. Fine finds the ones you have.
 

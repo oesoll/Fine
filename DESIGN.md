@@ -214,9 +214,9 @@ States: loading/blank, interactive, resumed, error.
   the sidebar becomes unreadable over common wallpapers.
 - The terminal is libghostty (shared with sm through `../GhosttyTerminal`), not an
   xterm web view. The web view cost one WebKit process per tab (about 650 MB for
-  seven tabs, 2026-10-31). The package is a path dependency, so Fine builds only on
-  a machine that has `../GhosttyTerminal` with its framework built; decide a public
-  build route (prebuilt framework in releases) before the next public release.
+  seven tabs, 2026-10-31). The package is public (github.com/oesoll/GhosttyTerminal) and its
+  release carries the prebuilt engine, so a clone builds without Zig; a sibling
+  `../GhosttyTerminal` checkout takes over when present.
 - Sessions run through an interactive login shell (`zsh -ilc`) so that a
   Finder-launched Fine sees the same `~/.zshrc` environment as a terminal:
   provider keys, `~/.opencode/bin` ahead of Homebrew, and the same `ccv`. The
