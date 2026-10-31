@@ -8,6 +8,9 @@ swift test
 ditto .build/Fine.app /Applications/Fine.app
 ```
 
+터미널은 libghostty다(`../GhosttyTerminal`, sm과 같은 공용 패키지). 그 패키지의
+`Frameworks/GhosttyKit.xcframework`가 있어야 빌드된다 — 없으면 `sh ../GhosttyTerminal/scripts/build-ghostty.sh`.
+
 `~/cld/Fine-design`은 2026-09-09 시점의 **디자인 스냅샷 포크**다. UI 시안 전용이고,
 `fine` CLI·제어 소켓·smux 브리지가 없다. 거기서 빌드한 앱을 설치하면 안 된다.
 

@@ -10,13 +10,17 @@ let package = Package(
         // ~/bin/fine 으로 복사한다 (README 참고).
         .executable(name: "fine-cli", targets: ["FineCLI"]),
     ],
+    dependencies: [
+        // libghostty 터미널 층. sm(WorkspaceManager)과 같은 엔진·패치·입력 처리를 함께 쓴다.
+        // 이 경로 의존은 SEOL의 맥에서만 풀린다 — 공개 빌드 길은 아직 정하지 않았다(2026-10-31).
+        .package(path: "../GhosttyTerminal"),
+    ],
     targets: [
-        .target(name: "CPty", path: "Sources/CPty"),
         .executableTarget(
             name: "Fine",
-            dependencies: ["CPty"],
+            dependencies: [.product(name: "GhosttyTerminal", package: "GhosttyTerminal")],
             path: "Sources/Fine",
-            resources: [.copy("Terminal/Resources"), .copy("Scenes"), .process("HarnessIcons.xcassets")]
+            resources: [.copy("Scenes"), .process("HarnessIcons.xcassets")]
         ),
         .executableTarget(name: "FineCLI", path: "Sources/FineCLI"),
         // 탭 셸을 LSUIElement 번들 이름으로 띄우는 도우미. package-app.sh가

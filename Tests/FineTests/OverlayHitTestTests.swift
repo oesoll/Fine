@@ -1,15 +1,15 @@
 import AppKit
+import GhosttyTerminal
 import SwiftUI
-import WebKit
 import XCTest
 @testable import Fine
 
-/// The model picker is an in-window overlay above an NSView-backed WKWebView.
+/// The model picker is an in-window overlay above the AppKit terminal view (libghostty's Metal surface).
 /// SwiftUI must order it above that platform view, otherwise the scrim and the
 /// card would render behind the terminal and never receive clicks.
 final class OverlayHitTestTests: XCTestCase {
     @MainActor
-    func testOverlayReceivesHitsAboveTheTerminalWebView() {
+    func testOverlayReceivesHitsAboveTheTerminalView() {
         let stateFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("fine-overlay-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: stateFile) }
@@ -33,8 +33,8 @@ final class OverlayHitTestTests: XCTestCase {
         let center = NSPoint(x: 450, y: 320)
         let beforeHit = hosting.hitTest(center)
         XCTAssertTrue(
-            containsWebView(beforeHit),
-            "without the overlay the terminal web view should own the hit"
+            containsTerminal(beforeHit),
+            "without the overlay the terminal view should own the hit"
         )
 
         session.isModelPickerPresented = true
@@ -42,8 +42,8 @@ final class OverlayHitTestTests: XCTestCase {
         let hit = hosting.hitTest(center)
         XCTAssertNotNil(hit)
         XCTAssertFalse(
-            containsWebView(hit),
-            "overlay must sit above the terminal web view, got \(String(describing: hit))"
+            containsTerminal(hit),
+            "overlay must sit above the terminal view, got \(String(describing: hit))"
         )
     }
 
@@ -55,10 +55,10 @@ final class OverlayHitTestTests: XCTestCase {
         }
     }
 
-    private func containsWebView(_ view: NSView?) -> Bool {
+    private func containsTerminal(_ view: NSView?) -> Bool {
         var current = view
         while let candidate = current {
-            if candidate is WKWebView || candidate is TerminalWebView || candidate is TerminalHostView {
+            if candidate is GhosttyTerminalView || candidate is FineTerminalView || candidate is TerminalHostView {
                 return true
             }
             current = candidate.superview

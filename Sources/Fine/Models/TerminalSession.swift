@@ -1,7 +1,9 @@
 import Combine
 import Foundation
+import GhosttyTerminal
 
-/// One ephemeral agent conversation backed by a direct PTY and xterm.js view.
+/// One ephemeral agent conversation backed by a libghostty surface (FineTerminalView).
+/// The surface owns the PTY and the child process; this object decides what to launch.
 final class TerminalSession: Identifiable, ObservableObject, Equatable {
     let id: UUID
     private(set) var controlFingerprint = UUID().uuidString
@@ -17,8 +19,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     let launch: QuickLaunch
     let configuration: QuickSessionConfiguration
     private let initialName: String
-    private(set) var terminalView: TerminalWebView?
-    private var pty: PTYProcess?
+    private(set) var terminalView: FineTerminalView?
     private var started = false
     private var sessionId: String?
     private var identityTimer: Timer?
@@ -103,36 +104,32 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         persistenceHandler = handler
     }
 
-    func getOrCreateTerminal() -> TerminalWebView {
+    func getOrCreateTerminal() -> FineTerminalView {
         if let terminalView { return terminalView }
-        let view = TerminalWebView(
-            frame: .zero,
+        let view = FineTerminalView(
             // 터미널은 UI에서만 만들어진다. 외형 조회는 메인 액터에 묶여 있다.
             palette: MainActor.assumeIsolated { TerminalPalette.current(configuration.harness) },
             statusText: configuration.terminalStatus,
             harness: configuration.harness,
             // OpenCode draws its own input and status rows at the bottom; only
             // Claude Code's hint row is replaced by Fine's status rail.
-            footerCrop: configuration.harness == .claude ? TerminalWebView.claudeFooterCrop : 0
+            cropsFooterRow: configuration.harness == .claude
         )
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.onUserInput = { [weak self] data in self?.pty?.write(data) }
-        view.onResize = { [weak self] columns, rows in
-            self?.pty?.resize(cols: columns, rows: rows)
-        }
-        view.onReady = { [weak self] in self?.startIfNeeded() }
-        view.onWebProcessCrash = { [weak self] in self?.recoverFromCrash() }
         view.onStatusClick = { [weak self] in
             DispatchQueue.main.async {
                 self?.isModelPickerPresented = true
             }
         }
+        view.onExit = { [weak self] in
+            DispatchQueue.main.async { self?.isRunning = false }
+        }
         terminalView = view
         return view
     }
 
-    /// Start page loading and the child process together. Output received before xterm is
-    /// ready is retained by TerminalWebView and flushed by its ready handler.
+    /// 터미널과 자식 프로세스를 함께 띄운다. 화면에 아직 붙지 않은 탭(복원된 뒷탭)도 지금 띄운다 —
+    /// 표면은 창 밖에서도 돌고, 마지막으로 잰 터미널 크기로 시작한다.
     func startImmediately() {
         _ = getOrCreateTerminal()
         startIfNeeded()
@@ -141,10 +138,10 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     private func startIfNeeded() {
         guard !started else { return }
         started = true
-        startPTY()
+        startProcess()
     }
 
-    private func startPTY() {
+    private func startProcess() {
         controlFingerprint = UUID().uuidString
         identityStartedAt = Date()
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
@@ -156,7 +153,8 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             currentLaunch, harness: configuration.harness, workingDirectory: directory
         )
         if case .resume(let id) = effectiveLaunch { sessionId = id }
-        var environment = ProcessInfo.processInfo.environment
+        let base = ProcessInfo.processInfo.environment
+        var environment = base
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         // Fine은 색을 그리는 터미널이다. 앱을 에이전트 셸에서 다시 띄우면 그 셸의
@@ -173,40 +171,65 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             configuration: configuration
         )
 
-        let process = PTYProcess()
-        let view = terminalView
-        process.onOutput = { [weak view] data in view?.feed(data) }
-        process.onExit = { [weak self] _ in
-            DispatchQueue.main.async { self?.isRunning = false }
-        }
         let launch = Self.agentWrapped(
             executable: shell,
             execName: executableName,
             arguments: Self.launchArguments(launch: effectiveLaunch, configuration: configuration)
         )
-        do {
-            try process.start(
-                executable: launch.executable,
-                execName: launch.execName,
-                arguments: launch.arguments,
-                environment: environment,
-                workingDirectory: directory,
-                cols: view?.lastCols ?? 80,
-                rows: view?.lastRows ?? 24
-            )
-            pty = process
-            isRunning = true
-            startError = nil
-            if let processIdentifier = process.processIdentifier {
-                beginIdentityUpdates(processIdentifier: processIdentifier)
-            }
-        } catch {
-            startError = "터미널 시작 실패: \(error)"
+        let view = getOrCreateTerminal()
+        let surface = view.start(Self.ghosttyLaunch(
+            executable: launch.executable,
+            arguments: launch.arguments,
+            environment: environment,
+            base: base,
+            workingDirectory: directory
+        ))
+        if surface.failedToStart {
+            startError = "터미널 시작 실패: libghostty 표면을 만들지 못했습니다"
             isRunning = false
+            return
         }
+        isRunning = true
+        startError = nil
+        beginIdentityUpdates()
     }
 
-    private func beginIdentityUpdates(processIdentifier: pid_t) {
+    /// 실행 파일과 인자를 libghostty가 띄울 셸 한 줄로. libghostty는 이 줄을 bash로 `exec`하므로 낱말마다
+    /// 작은따옴표를 친다. 표면 설정은 환경 변수를 더하는 것만 받으므로, 앱 환경에서 지워야 하는 변수
+    /// (NO_COLOR, TMUX, 게이트웨이 변수 …)는 `/usr/bin/env -u`로 앞에서 지운다. 값은 명령줄이 아니라 표면
+    /// 환경으로 넘긴다 — `ps`에 토큰이 보이지 않게.
+    ///
+    /// `fine-agent`가 받던 argv0(로그인 셸의 `-zsh`)는 셸 인자 `-l`이 같은 일을 하므로, 도우미 없이 돌 때
+    /// (swift run)는 실행 파일 경로를 그대로 쓴다.
+    static func ghosttyLaunch(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        base: [String: String],
+        workingDirectory: String
+    ) -> GhosttyTerminalView.Launch {
+        let set = environment.filter { base[$0.key] != $0.value }
+        let unset = base.keys.filter { environment[$0] == nil }.sorted()
+        var words: [String] = []
+        if !unset.isEmpty { words = ["/usr/bin/env"] + unset.flatMap { ["-u", $0] } }
+        words += [executable] + arguments
+        return .init(command: words.map(shellQuoted).joined(separator: " "),
+                     workingDirectory: workingDirectory, environment: set)
+    }
+
+    static func shellQuoted(_ word: String) -> String {
+        let plain = CharacterSet(charactersIn:
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=:@%+,")
+        if !word.isEmpty, word.unicodeScalars.allSatisfy(plain.contains) { return word }
+        return "'" + word.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// 앞 프로세스 그룹의 리더(맥에서 libghostty가 띄운 `login`). 셸·에이전트가 같은 그룹에 있다.
+    private var processGroupLeader: pid_t? {
+        terminalView?.foregroundProcessIdentifier
+    }
+
+    private func beginIdentityUpdates() {
         identityTimer?.invalidate()
         titleCancellable = nil
         metadataGeneration = UUID()
@@ -225,7 +248,14 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             if let sessionId { scanner.track(sessionID: sessionId, owner: id) }
         }
 
-        refreshSessionMetadata(processIdentifier: processIdentifier)
+        // 자식은 표면의 입출력 스레드에서 막 뜨는 중이라 앞 그룹이 아직 없을 수 있다. 곧 한 번 더 본다.
+        refreshSessionMetadata(processIdentifier: processGroupLeader ?? 0)
+        let generation = metadataGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.metadataGeneration == generation, self.sessionId == nil,
+                  let leader = self.processGroupLeader else { return }
+            self.refreshSessionMetadata(processIdentifier: leader)
+        }
         identityTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) {
             [weak self] timer in
             guard let self, self.isRunning else {
@@ -238,12 +268,14 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
                 return
             }
             if self.sessionId == nil || AppResourcePolicy.hasVisibleWindows {
-                self.refreshSessionMetadata(processIdentifier: processIdentifier)
+                self.refreshSessionMetadata(processIdentifier: self.processGroupLeader ?? 0)
             }
         }
         identityTimer?.tolerance = 0.5
     }
 
+    /// `processIdentifier`: 앞 프로세스 그룹의 리더. Codex는 그룹 전체가 연 파일로, Claude는 그룹 안에서
+    /// 자기 pid로 등록부(~/.claude/sessions/<pid>.json)를 쓴 프로세스로 대화를 찾는다.
     func refreshSessionMetadata(processIdentifier: pid_t, store: HarnessSessionStore? = nil) {
         guard !metadataRefreshInFlight else { return }
         metadataRefreshInFlight = true
@@ -265,7 +297,10 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             } else {
                 switch harness {
                 case .claude:
-                    resolvedID = QuickSessionTitleResolver.sessionId(processIdentifier: processIdentifier)
+                    // 표면의 직속 자식은 `login`이고 Claude는 그 아래에 있다 — 그룹을 훑는다.
+                    resolvedID = ProcessGroup.members(of: processIdentifier).lazy
+                        .compactMap { QuickSessionTitleResolver.sessionId(processIdentifier: $0) }
+                        .first
                 case .codex:
                     resolvedID = store.newSessionID(
                         harness: harness, createdAfter: startedAt,
@@ -331,53 +366,42 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         self.sessionId == sessionId
     }
 
+    /// 끝난 탭을 다시 고르면 같은 대화를 새 표면으로 다시 띄운다(끝난 표면은 닫는다).
     func restartIfDead() {
-        guard started, pty?.isRunning != true else { return }
-        pty?.terminate()
-        pty = nil
+        guard started, terminalView?.isProcessRunning != true else { return }
         startError = nil
-        startPTY()
-    }
-
-    private func recoverFromCrash() {
-        pty?.terminate()
-        pty = nil
-        started = false
-        terminalView?.reloadPage()
+        startProcess()
     }
 
     /// CLI 입력 경로 — 사용자가 키보드로 친 것과 같은 바이트가 PTY로 들어간다.
     @discardableResult
     func write(_ data: Data) -> Bool {
-        guard let pty, pty.isRunning else { return false }
-        pty.write(data)
-        return true
+        terminalView?.write(data) ?? false
     }
 
     var hasTerminal: Bool { terminalView != nil }
 
     func readScreen(lines: Int, completion: @escaping (String?) -> Void) {
-        guard let terminalView else { completion(nil); return }
-        terminalView.readScreen(lines: lines, completion: completion)
+        completion(terminalView?.readScreen(lines: lines))
     }
 
     func readTheme(completion: @escaping (String?) -> Void) {
-        guard let terminalView else { completion(nil); return }
-        terminalView.readTheme(completion: completion)
+        completion(terminalView?.themeReport())
     }
 
     func focusTerminal() {
         DispatchQueue.main.async { [weak self] in self?.terminalView?.focusTerminal() }
     }
 
+    /// 탭을 닫는다. 표면이 사라지면 이 자식과 대화할 수단이 영영 없어지므로, `force`와 상관없이 신호를
+    /// 무시하는 자식(Claude Code)까지 유예 뒤 SIGKILL로 정리한다(`force`는 호출부 호환으로 남겨 둔다).
     func cleanup(force: Bool = false) {
         QuickConversationScanner.shared.untrack(owner: id)
         metadataGeneration = UUID()
         identityTimer?.invalidate()
         identityTimer = nil
         titleCancellable = nil
-        pty?.terminate(force: force)
-        pty = nil
+        terminalView?.terminate()
         terminalView?.removeFromSuperview()
         terminalView = nil
     }
@@ -389,8 +413,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         identityTimer?.invalidate()
         identityTimer = nil
         titleCancellable = nil
-        pty?.terminateSynchronously()
-        pty = nil
+        terminalView?.terminate(synchronously: true)
         terminalView?.removeFromSuperview()
         terminalView = nil
     }

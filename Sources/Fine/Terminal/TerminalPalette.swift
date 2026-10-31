@@ -1,6 +1,8 @@
 import Foundation
+import GhosttyTerminal
 
-/// xterm.js에 전달하는 팔레트. 라이트는 흰 바탕, 다크는 중립 짙은 회색 바탕이다.
+/// 터미널(libghostty)에 입히는 팔레트. 라이트는 흰 바탕, 다크는 중립 짙은 회색 바탕이다.
+/// 색 이름은 xterm.js 시절 그대로다 — GhosttyTheme가 같은 이름을 Ghostty 설정으로 옮긴다.
 struct TerminalPalette: Equatable {
     let colors: [String: String]
     var minimumContrastRatio: Double = 1
@@ -93,6 +95,10 @@ struct TerminalPalette: Equatable {
     /// 테마와 Codex의 이름 있는 색을 함께 받는다. 호출부가 하네스를 넘기는 자리는 남겨 둔다.
     static func forHarness(_ harness: QuickHarness, isDark: Bool = false) -> TerminalPalette {
         isDark ? .quickDark : .quickLight
+    }
+
+    var ghosttyTheme: GhosttyTheme {
+        GhosttyTheme(colors: colors, minimumContrast: minimumContrastRatio)
     }
 
     var json: String? {

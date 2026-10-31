@@ -52,7 +52,7 @@ Transparency makes it solid.
   and the fallback kept monospaced spaces, so words drifted apart
 - Prompt: SF Pro system, 16 pt, regular
 - Metadata: SF Pro system, 10 pt, medium, tabular where numeric
-- Terminal: bundled xterm configuration and the role-based ANSI palette
+- Terminal: libghostty (Menlo 13 with the system Hangul fallback) and the role-based ANSI palette
 - Terminal status: SF Mono, 10 pt, medium
 
 Korean text must remain legible without artificial uppercase transformation.
@@ -212,9 +212,11 @@ States: loading/blank, interactive, resumed, error.
 - The sidebar material uses the system compositor rather than a custom
   refraction shader. Replace only if macOS changes native material rendering or
   the sidebar becomes unreadable over common wallpapers.
-- The terminal remains an xterm web view because IME and PTY behavior are
-  already validated. A native text renderer is out of scope unless profiling
-  identifies the web view as a material performance problem.
+- The terminal is libghostty (shared with sm through `../GhosttyTerminal`), not an
+  xterm web view. The web view cost one WebKit process per tab (about 650 MB for
+  seven tabs, 2026-10-31). The package is a path dependency, so Fine builds only on
+  a machine that has `../GhosttyTerminal` with its framework built; decide a public
+  build route (prebuilt framework in releases) before the next public release.
 - Sessions run through an interactive login shell (`zsh -ilc`) so that a
   Finder-launched Fine sees the same `~/.zshrc` environment as a terminal:
   provider keys, `~/.opencode/bin` ahead of Homebrew, and the same `ccv`. The

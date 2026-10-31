@@ -168,7 +168,7 @@ struct SessionTerminalWrapper: NSViewRepresentable {
 
 /// 터미널 뷰를 담는 컨테이너. 윈도우에 붙은 컨테이너만 터미널을 소유한다.
 final class TerminalHostView: NSView {
-    weak var terminal: TerminalWebView?
+    weak var terminal: FineTerminalView?
 
     func attachIfNeeded() {
         guard let terminal, window != nil else { return }
