@@ -21,6 +21,9 @@ Fine 안에서 도는 에이전트가 Fine을 종료하면 자기 세션이 끊�
 
 - 프로세스 이름이 전체 경로라 `pkill -x Fine`은 매칭되지 않는다. PID로 잡을 것.
 - macOS에는 `setsid`가 없다. 백그라운드 재시작 스크립트에 쓰면 조용히 실패한다.
+- 에이전트 셸에서 띄우면 `open`이어도 그 셸의 환경이 앱으로 넘어간다. 2026-10-31 탭 7개가 그 에이전트의
+  `PEER_NAME`·메시지 소켓을 들고 떴다. 앱이 시작할 때 지우지만(InheritedAgentSession), 띄울 때도 깨끗하게:
+  `env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" SHELL="$SHELL" TMPDIR="$TMPDIR" PATH=/usr/bin:/bin:/usr/sbin:/sbin open /Applications/Fine.app`
 
 ## 홈 화면 배경
 
