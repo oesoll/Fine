@@ -318,7 +318,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             let mayBeAsleep = loweredAt.map { Date().timeIntervalSince($0) > 60 * 60 } ?? false
             let resting = view.stage.isCovered && view.stage.look != .clear
             if !resting { reconnecting = false }
-            view.stage.caption = nil
+            if !reconnecting { view.stage.caption = nil }
             connect(view, name: name, attach: attach, covered: true,
                     look: mayBeAsleep || resting ? .waking : .clear, generation: generation)
             return
@@ -348,7 +348,10 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             return
         }
         if covered { view.stage.setLook(look) }
-        view.stage.onReveal = { [weak self] in self?.reconnectDelay = 0 }
+        view.stage.onReveal = { [weak self, weak view] in
+            self?.reconnectDelay = 0
+            view?.stage.caption = nil
+        }
         if covered, reconnecting {
             // 다시 연결: 끊긴 동안은 세션 층에 물을 수 없으므로 앱이 정한다 — 다시 받은 출력이 조용해지면 걷는다.
             reconnecting = false
@@ -404,6 +407,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
                 case nil where name.contains("@"):
                     // 원격 세션에 물을 수 없다 = 연결이 끊겼다(맥이 잠들었다 깨는 등). 에이전트는 저쪽에서 계속 돈다.
                     // "연결 중"(깨는 중과 같은 모습)으로 두고 점점 간격을 늘려 다시 붙는다.
+                    view.stage.caption = "다시 연결하는 중"   // sm 패널과 같은 글
                     view.stage.setLook(.waking)
                     view.stage.onKeyWhileResting = nil
                     self.reconnectDelay = min(30, max(2, self.reconnectDelay * 2))

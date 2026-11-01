@@ -89,6 +89,7 @@ final class FineTerminalView: NSView {
 
     /// 가려진 탭: 세션을 보던 attach만 내리고 그 화면을 장면으로 남긴다(다시 보일 때 덮개 아래 그림).
     func lower() {
+        stage.caption = nil
         if stage.isCovered, stage.scene != nil {
             // 깨우던 중에 가려졌다: 새 표면을 치우고 원래 장면을 남긴다.
             stage.cancelAttach()
