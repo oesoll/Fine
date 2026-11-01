@@ -51,6 +51,10 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     private var stateWatch: SmSessionBridge.StateWatch?
     /// 마지막으로 가려진 때. 세션 층은 65분 쉰 세션을 재우므로, 그보다 오래 가려졌으면 깨는 모습으로 시작한다.
     private var loweredAt: Date?
+    /// 원격 세션(NAME@HOST)에 다시 연결하기까지 기다릴 시간. 붙으면 0으로 돌아간다.
+    private var reconnectDelay: TimeInterval = 0
+    /// 다음 붙기가 끊긴 연결을 다시 잇는 것인가 — 그때는 세션 층에 물을 수 없어 출력이 조용해지면 걷는다.
+    private var reconnecting = false
     /// 세션이 사라졌을 때(sm 기록이 없음) 같은 대화로 다시 띄우는 데 쓰는 환경.
     private var heldEnvironment: [String: String] = [:]
 
@@ -313,6 +317,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         if view.stage.hasFrame {
             let mayBeAsleep = loweredAt.map { Date().timeIntervalSince($0) > 60 * 60 } ?? false
             let resting = view.stage.isCovered && view.stage.look != .clear
+            if !resting { reconnecting = false }
             view.stage.caption = nil
             connect(view, name: name, attach: attach, covered: true,
                     look: mayBeAsleep || resting ? .waking : .clear, generation: generation)
@@ -343,6 +348,12 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             return
         }
         if covered { view.stage.setLook(look) }
+        view.stage.onReveal = { [weak self] in self?.reconnectDelay = 0 }
+        if covered, reconnecting {
+            // 다시 연결: 끊긴 동안은 세션 층에 물을 수 없으므로 앱이 정한다 — 다시 받은 출력이 조용해지면 걷는다.
+            reconnecting = false
+            view.stage.revealWhenQuiet()
+        }
         // 붙어 있는 내내 세션 상태를 본다: 덮인 동안은 ready가 걷을 신호이고, 걷힌 뒤에 멈춤·잠듦·사라짐이
         // 오면 다시 덮는다. 세션이 멈춰도 attach는 끝나지 않고 키를 기다리므로 끝남으로는 알 수 없다.
         stopStateWatch()
@@ -390,6 +401,17 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             DispatchQueue.main.async {
                 guard let self, self.raiseGeneration == generation, let view = self.terminalView else { return }
                 switch state {
+                case nil where name.contains("@"):
+                    // 원격 세션에 물을 수 없다 = 연결이 끊겼다(맥이 잠들었다 깨는 등). 에이전트는 저쪽에서 계속 돈다.
+                    // "연결 중"(깨는 중과 같은 모습)으로 두고 점점 간격을 늘려 다시 붙는다.
+                    view.stage.setLook(.waking)
+                    view.stage.onKeyWhileResting = nil
+                    self.reconnectDelay = min(30, max(2, self.reconnectDelay * 2))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + self.reconnectDelay) { [weak self] in
+                        guard let self, self.raiseGeneration == generation, self.isVisible else { return }
+                        self.reconnecting = true
+                        self.raiseHeld()
+                    }
                 case "stopped":
                     view.stage.caption = "멈춤 · 아무 키나 누르면 깨어납니다"
                     view.stage.onKeyWhileResting = { [weak self] in self?.raiseHeld() }
