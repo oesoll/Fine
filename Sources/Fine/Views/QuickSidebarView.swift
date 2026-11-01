@@ -110,7 +110,8 @@ struct QuickSidebarView: View {
                                     guard item.windowID == appState.windowStateID else { return false }
                                     return appState.dropSession(id: item.sessionID, onto: session.id, edge: edge)
                                 },
-                                onUngroup: { appState.ungroupSession(id: session.id) }
+                                onUngroup: { appState.ungroupSession(id: session.id) },
+                                onMoveToSm: { appState.moveToSm(session) }
                             )
                             .accessibilityAction(named: Text("위로 이동")) {
                                 appState.moveSession(id: session.id, by: -1)
@@ -266,6 +267,8 @@ private struct QuickSessionRow: View {
     let drag: OpenSessionDrag
     let onDropSession: (OpenSessionDrag, SessionInsertionEdge) -> Bool
     var onUngroup: () -> Void = {}
+    /// 이 탭의 에이전트를 sm 패널로 옮긴다(sm 세션을 보는 탭에만 메뉴가 뜬다).
+    var onMoveToSm: () -> Void = {}
     @State private var insertionEdge: SessionInsertionEdge?
     /// 하위 탭 줄이 메인 탭 이름 아래에서 시작하는 자리.
     static let childIndent: CGFloat = 14
@@ -348,6 +351,10 @@ private struct QuickSessionRow: View {
             }
             if session.isNameUserSet {
                 Button("자동 제목으로") { session.clearCustomName() }
+            }
+            if session.smSessionName != nil, SmSessionBridge.smCLI != nil {
+                Divider()
+                Button("sm으로 옮기기") { onMoveToSm() }
             }
         }
         .background {

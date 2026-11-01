@@ -28,6 +28,8 @@ fine — Fine을 터미널에서 조작한다
   fine tab select|close <tab>               탭 선택/닫기
   fine tab next|prev                        다음/이전 탭
   fine tab move <tab> <index|+1|-1>         탭 순서 이동
+  fine move <tab> sm                        이 탭의 에이전트를 sm 패널로 옮긴다 (sm 모드, 대화는 그대로)
+  fine attach <NAME[@HOST]> [--harness H]   sm 세션을 Fine 탭으로 가져온다 (sm 패널 → Fine)
   fine rename <tab> <name>                  탭 이름 바꾸기 (auto면 자동 제목으로)
   fine home                                 홈(새 대화 화면)으로
 
@@ -57,6 +59,7 @@ fine — Fine을 터미널에서 조작한다
 --model default 는 "기본 (터미널과 동일)"
 
 메시징은 smux 프로토콜과 같다: read로 상대를 먼저 보고, msg로 보내고, read로 확인한 뒤 keys Enter.
+sm 세션을 보는 Fine 탭(tab list의 smSession)에는 msg가 peer say로 간다 — Enter가 필요 없다.
 대상: Fine 탭 이름/ID, %pane, tmux:라벨, arch:라벨, mac:fine:<UUID>.
 읽기 가드·trust·첫 연락·답장 주소는 tmux-bridge가 공통으로 처리한다.
 """
@@ -113,6 +116,25 @@ func bridge(_ command: String, _ target: String, _ arguments: [String]) throws -
     exit(process.terminationStatus)
 }
 
+/// Fine 탭 주소인가(%pane·tmux:라벨·host:대상이 아닌 것).
+func isFineTab(_ target: String) -> Bool {
+    !target.hasPrefix("%") && !target.hasPrefix("tmux:") && !target.contains(":")
+}
+
+/// 그 탭이 보는 sm 세션 이름(sm 모드 탭). 없으면 nil.
+func smSession(of target: String) -> String? {
+    guard let response = try? send("tab.info", ["tab": target]),
+          let tab = response["result"] as? [String: Any],
+          let name = tab["smSession"] as? String, !name.isEmpty else { return nil }
+    return name
+}
+
+func peerExecutable() -> String? {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    return [home + "/.smux/bin/peer", "/opt/homebrew/bin/peer", "/usr/local/bin/peer"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+}
+
 // MARK: - 인자 파싱
 
 do {
@@ -140,6 +162,7 @@ while i < argv.count {
     case "--no-focus": noFocus = true
     case "-w", "--window": i += 1; windowArg = i < argv.count ? argv[i] : nil
     case "--proxy": flags["proxy"] = "true"
+    case "--top": flags["top"] = "true"
     case "--dry-run": flags["dry-run"] = "true"
     case "--harness", "--model", "--effort", "-n", "--limit":
         i += 1; flags[a.hasPrefix("--") ? String(a.dropFirst(2)) : "limit"] = i < argv.count ? argv[i] : ""
@@ -179,6 +202,15 @@ do {
         try bridge(group, target, rest)
     case ("send", _), ("keys", _), ("msg", _), ("message", _):
         guard let target = sub, !rest.isEmpty else { throw CLIError(message: "usage: fine \(group) <target> <text/key…>") }
+        // sm 세션을 보는 Fine 탭에 하는 말은 peer로 간다 — 입력창에 치지 않으니 읽기·Enter 단계가 없다.
+        if group == "msg" || group == "message", isFineTab(target),
+           let held = smSession(of: target), let peer = peerExecutable() {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: peer)
+            process.arguments = ["say", held, rest.joined(separator: " ")]
+            try process.run(); process.waitUntilExit()
+            exit(process.terminationStatus)
+        }
         try bridge(group == "send" ? "type" : group, target,
                    group == "keys" ? rest : [rest.joined(separator: " ")])
     default: break
@@ -219,6 +251,15 @@ do {
     case ("tab", "next"), ("tab", "prev"): command = "tab.\(sub!)"
     case ("tab", "move"):
         let a = try need(2, "fine tab move <tab> <index|+1|-1>"); command = "tab.move"; args["tab"] = a[0]; args["to"] = a[1]
+    case ("move", _):
+        guard let tab = sub, rest == ["sm"] else {
+            throw CLIError(message: "usage: fine move <tab> sm   (지금은 sm으로 옮기기만 있다)")
+        }
+        command = "tab.handoff"; args["tab"] = tab
+    case ("attach", _):
+        guard let name = sub else { throw CLIError(message: "usage: fine attach <NAME[@HOST]> [--harness claude|codex]") }
+        command = "tab.attach"; args["name"] = name
+        if let harness = flags["harness"] { args["harness"] = harness }
     case ("transcript", _):
         guard let tab = sub else { throw CLIError(message: "usage: fine transcript <tab> [-n N]") }
         command = "tab.transcript"; args["tab"] = tab; args["limit"] = Int(flags["limit"] ?? "20") ?? 20

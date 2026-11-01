@@ -19,6 +19,8 @@ struct QuickSessionSnapshot: Codable, Equatable, Identifiable {
     var isNameUserSet: Bool?
     /// 이 탭을 띄운(또는 사용자가 묶어 둔) 메인 탭. 사이드바에서 그 아래 한 단 들여 보인다.
     var parentID: UUID?
+    /// sm 모드에서 이 탭이 보는 sm 세션 이름. Fine을 다시 띄우면 이 이름으로 다시 붙는다.
+    var smSessionName: String? = nil
 }
 
 struct WindowState: Codable, Identifiable, Equatable {

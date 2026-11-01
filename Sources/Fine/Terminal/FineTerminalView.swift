@@ -121,6 +121,14 @@ final class FineTerminalView: NSView {
     /// 신호를 무시하는 자식(Claude Code는 SIGHUP·SIGTERM을 무시한다)에게 SIGKILL로 승격하기까지의 유예.
     static let terminationGrace: TimeInterval = 3
 
+    /// sm 세션을 보던 표면을 뗀다: `sm-session attach`만 SIGHUP으로 끝나고 에이전트는 그대로 산다.
+    /// 붙은 클라이언트는 에이전트와 다른 프로세스 그룹이라 정리(reap)할 것이 없다.
+    func detach() {
+        surface?.terminate()
+        surface?.removeFromSuperview()
+        surface = nil
+    }
+
     /// 탭을 닫는다. `synchronously`는 앱 종료 경로 — 비동기 승격이 실행될 기회가 없다.
     func terminate(synchronously: Bool = false) {
         surface?.terminate(reapingAfter: synchronously ? 0.5 : Self.terminationGrace, synchronously: synchronously)

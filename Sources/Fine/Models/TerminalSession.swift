@@ -31,6 +31,12 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     private var metadataGeneration = UUID()
     private var metadataRefreshInFlight = false
     private let metadataQueue = DispatchQueue(label: "Fine.SessionMetadata", qos: .utility)
+    /// sm 모드에서 이 탭이 보는 sm 세션 이름(SmSessionBridge). nil이면 에이전트를 직접 띄운 탭이다.
+    @Published private(set) var smSessionName: String?
+    /// sm에서 옮겨 온 세션: 띄우지 않고 붙기만 한다(그 세션을 띄운 건 sm이다).
+    private var attachesOnly = false
+    /// 늦게 끝난 spawn이 그 사이 다시 띄운 표면을 건드리지 않게.
+    private var heldGeneration = UUID()
 
     var resumableSessionID: String? { sessionId }
     var currentLaunch: QuickLaunch {
@@ -72,6 +78,18 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         )
         isNameUserSet = snapshot.isNameUserSet ?? false
         parentID = snapshot.parentID
+        smSessionName = snapshot.smSessionName
+        // Fine이 띄운 세션은 탭 UUID에서 온 이름이다. 그렇지 않으면 sm에서 옮겨 온 세션 — 붙기만 한다.
+        if let held = snapshot.smSessionName, held != SmSessionBridge.name(for: snapshot.id) { attachesOnly = true }
+    }
+
+    /// sm에서 옮겨 온 세션을 보는 탭(`fine attach NAME`). 탭을 닫으면 Fine 탭의 규칙대로 그 세션을 끝낸다.
+    convenience init(attaching name: String, harness: QuickHarness,
+                     configurationStorage: QuickSessionConfigurationStorage = .shared) {
+        self.init(name: name, launch: .blank, configuration: .defaultConfiguration(for: harness),
+                  configurationStorage: configurationStorage)
+        smSessionName = name
+        attachesOnly = true
     }
 
     func snapshot() -> QuickSessionSnapshot {
@@ -81,7 +99,8 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             conversationID: sessionId,
             configuration: configuration,
             isNameUserSet: isNameUserSet ? true : nil,
-            parentID: parentID
+            parentID: parentID,
+            smSessionName: smSessionName
         )
     }
 
@@ -178,6 +197,21 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             configuration: configuration
         )
 
+        // sm 모드: 에이전트는 sm 세션으로 띄우고 이 탭은 거기에 붙는다 — Fine이 내려가도 대화가 산다.
+        if let executable = SmSessionBridge.executable {
+            let name = smSessionName ?? SmSessionBridge.name(for: id)
+            if attachesOnly {
+                startHeld(name: name, spawn: nil, environment: environment, directory: directory, executable: executable)
+                return
+            }
+            if let spawn = SmSessionBridge.spawn(name: name, tabID: id, launch: effectiveLaunch,
+                                                configuration: configuration, workingDirectory: directory,
+                                                path: environment["PATH"] ?? "") {
+                startHeld(name: name, spawn: spawn, environment: environment, directory: directory, executable: executable)
+                return
+            }
+        }
+
         let launch = Self.agentWrapped(
             executable: shell,
             execName: executableName,
@@ -199,6 +233,44 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         isRunning = true
         startError = nil
         beginIdentityUpdates()
+    }
+
+    /// sm 세션을 띄우고(이미 돌고 있으면 그대로, 끝나 있으면 되살린다) 그 세션에 이 탭의 표면을 붙인다.
+    /// spawn은 에이전트가 등록될 때까지 몇 초 걸릴 수 있어 뒤에서 하고, 표면은 끝난 뒤 메인에서 띄운다.
+    private func startHeld(name: String, spawn: SmSessionBridge.Spawn?, environment: [String: String],
+                           directory: String, executable: String) {
+        if smSessionName != name {
+            smSessionName = name
+            persistenceHandler?()
+        }
+        isRunning = true
+        startError = nil
+        let view = getOrCreateTerminal()
+        let attach = GhosttyTerminalView.Launch(command: SmSessionBridge.attachCommand(name, executable: executable),
+                                                workingDirectory: directory)
+        let generation = UUID()
+        heldGeneration = generation
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var failure: String?
+            if let spawn {
+                do { try SmSessionBridge.run(spawn, environment: environment, executable: executable) }
+                catch { failure = String(describing: error) }
+            }
+            DispatchQueue.main.async {
+                guard let self, self.heldGeneration == generation, self.terminalView === view else { return }
+                if let failure {
+                    self.startError = "sm 세션을 띄우지 못했습니다: \(failure)"
+                    self.isRunning = false
+                    return
+                }
+                if view.start(attach).failedToStart {
+                    self.startError = "터미널 시작 실패: libghostty 표면을 만들지 못했습니다"
+                    self.isRunning = false
+                    return
+                }
+                self.beginIdentityUpdates()
+            }
+        }
     }
 
     /// 실행 파일과 인자를 libghostty가 띄울 셸 한 줄로. libghostty는 이 줄을 bash로 `exec`하므로 낱말마다
@@ -263,7 +335,9 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
                   let leader = self.processGroupLeader else { return }
             self.refreshSessionMetadata(processIdentifier: leader)
         }
-        identityTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) {
+        // sm 세션의 대화 id는 sm-session ls로 묻는다(한 번에 0.17초) — Codex가 대화를 바꿨는지는 15초마다 본다.
+        let interval: TimeInterval = smSessionName != nil && configuration.harness == .codex ? 15 : 2
+        identityTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) {
             [weak self] timer in
             guard let self, self.isRunning else {
                 timer.invalidate()
@@ -292,12 +366,20 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         let startedAt = identityStartedAt
         let initialPrompt: String?
         if case .initialPrompt(let prompt) = launch { initialPrompt = prompt } else { initialPrompt = nil }
+        let heldName = smSessionName
         metadataQueue.async { [weak self] in
             let store = store ?? HarnessSessionStore.local
             let resolvedID: String?
+            // sm 세션이면 에이전트가 이 탭의 프로세스 그룹 밖(holder 아래)에 있다. sm이 아는 대화 id를 쓴다.
+            // OpenCode·omp는 셸 세션이라 sm이 대화 id를 모른다 — 그 둘은 아래의 저장소 기반 찾기를 그대로 쓴다.
+            let heldSession = harness == .claude || harness == .codex
+                ? heldName.flatMap { name in SmSessionBridge.rows().first { $0.name == name }?.session } : nil
             let activeCodexID = harness == .codex
-                ? CodexSessionResolver.sessionId(processIdentifier: processIdentifier) : nil
-            if let activeCodexID {
+                ? (heldName != nil ? heldSession : CodexSessionResolver.sessionId(processIdentifier: processIdentifier))
+                : nil
+            if heldName != nil, harness == .claude {
+                resolvedID = heldSession ?? knownID
+            } else if let activeCodexID {
                 resolvedID = activeCodexID
             } else if let knownID {
                 resolvedID = knownID
@@ -452,27 +534,53 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
 
     /// 탭을 닫는다. 표면이 사라지면 이 자식과 대화할 수단이 영영 없어지므로, `force`와 상관없이 신호를
     /// 무시하는 자식(Claude Code)까지 유예 뒤 SIGKILL로 정리한다(`force`는 호출부 호환으로 남겨 둔다).
+    /// sm 세션이면 그 세션을 끝낸다 — Fine에서 탭을 닫으면 에이전트가 실제로 끝나야 한다.
     func cleanup(force: Bool = false) {
-        stopWatchingInputForNotification()
-        QuickConversationScanner.shared.untrack(owner: id)
-        metadataGeneration = UUID()
-        identityTimer?.invalidate()
-        identityTimer = nil
-        titleCancellable = nil
+        if let held = smSessionName {
+            SmSessionBridge.stop(held)
+            detachSurface()
+            return
+        }
+        stopUpdates()
         terminalView?.terminate()
         terminalView?.removeFromSuperview()
         terminalView = nil
     }
 
     /// 앱 종료 경로 — 비동기 승격이 실행될 기회가 없으므로 동기적으로 종료한다.
+    /// sm 세션은 떼기만 한다: Fine을 다시 띄우면 같은 이름으로 다시 붙고, 재부팅 뒤엔 sm restore가 되살린다.
     func cleanupForTermination() {
+        if smSessionName != nil {
+            detachSurface()
+            return
+        }
+        stopUpdates()
+        terminalView?.terminate(synchronously: true)
+        terminalView?.removeFromSuperview()
+        terminalView = nil
+    }
+
+    /// sm으로 옮긴다: 세션은 그대로 두고 이 탭의 표면만 뗀다. 옮길 세션 이름을 돌려준다(직접 띄운 탭은 nil).
+    func detachForHandoff() -> String? {
+        guard let held = smSessionName else { return nil }
+        detachSurface()
+        return held
+    }
+
+    private func stopUpdates() {
         stopWatchingInputForNotification()
         QuickConversationScanner.shared.untrack(owner: id)
         metadataGeneration = UUID()
+        heldGeneration = UUID()
         identityTimer?.invalidate()
         identityTimer = nil
         titleCancellable = nil
-        terminalView?.terminate(synchronously: true)
+    }
+
+    /// 붙어 있던 `sm-session attach`만 끝낸다(에이전트는 holder 아래에서 계속 돈다).
+    private func detachSurface() {
+        stopUpdates()
+        terminalView?.detach()
         terminalView?.removeFromSuperview()
         terminalView = nil
     }

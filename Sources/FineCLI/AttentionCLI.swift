@@ -43,7 +43,20 @@ func handleAttentionCLI(_ arguments: [String]) throws -> Bool {
         args = [operation == "snapshot" ? "path" : "id": argv[1]]
     default: throw CLIError(message: "unknown notifications command")
     }
-    let response = try send("attention." + operation, args)
+    let response: [String: Any]
+    do {
+        response = try send("attention." + operation, args)
+    } catch let error as CLIError where error.message.hasPrefix("unknown command: attention.") {
+        // 이 맥에선 노치가 sm의 것이다(Fine이 attention.* 를 내놓았다). 같은 일을 sm CLI로 한다.
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        guard let sm = [home + "/bin/sm", "/opt/homebrew/bin/sm", "/usr/local/bin/sm"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw error }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: sm)
+        process.arguments = ["notch", operation] + argv.dropFirst()
+        try process.run(); process.waitUntilExit()
+        exit(process.terminationStatus)
+    }
     let data = try JSONSerialization.data(withJSONObject: response["result"] ?? NSNull(), options: [.prettyPrinted, .sortedKeys])
     print(String(decoding: data, as: UTF8.self))
     return true

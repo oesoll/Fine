@@ -24,7 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         startControlServer()
-        MainActor.assumeIsolated { AttentionNotch.shared.start() }
+        MainActor.assumeIsolated {
+            // 노치는 sm이 갖는다(SmNotch). sm이 없는 기계에서만 Fine이 노치를 띄운다.
+            if SmNotch.ownsNotch { AttentionStore.shared.mirrorSm() } else { AttentionNotch.shared.start() }
+        }
         requestAgentPermissions()
     }
 
@@ -120,7 +123,9 @@ struct FineCommands: Commands {
         }
 
         CommandMenu("Conversation") {
-            Button("에이전트 알림") { AttentionNotch.shared.reveal(animated: false) }
+            Button("에이전트 알림") {
+                if SmNotch.ownsNotch { SmNotch.show() } else { AttentionNotch.shared.reveal(animated: false) }
+            }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Next Conversation") { appState?.selectNextSession() }
                 .keyboardShortcut(.downArrow, modifiers: [.command])

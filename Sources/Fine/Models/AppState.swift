@@ -58,6 +58,11 @@ final class AppState: ObservableObject {
     private func resumeRestoredSessions() {
         var claimedConversations: Set<String> = []
         for session in sessions {
+            // sm 세션을 보던 탭은 그 세션에 다시 붙는다 — 살아 있으면 그대로, 끝났으면 sm이 되살린다.
+            if session.smSessionName != nil, SmSessionBridge.isAvailable {
+                session.startImmediately()
+                continue
+            }
             guard case .resume(let conversationID) = session.launch else { continue }
             // 같은 대화를 두 탭이 붙잡지 않도록 한 번만 살린다.
             guard claimedConversations.insert(conversationID).inserted else { continue }
@@ -176,6 +181,36 @@ final class AppState: ObservableObject {
     func showHome() {
         selectedSession = nil
         persistWindowState()
+    }
+
+    /// sm 세션 하나를 이 창의 탭으로 가져온다(sm 패널 → Fine). 이미 보고 있는 탭이 있으면 그 탭을 고른다.
+    /// 이 탭을 닫으면 Fine 탭의 규칙대로 그 세션이 끝난다.
+    @discardableResult
+    func attachSession(named name: String, harness: QuickHarness) -> TerminalSession {
+        if let existing = sessions.first(where: { $0.smSessionName == name }) {
+            selectSession(existing)
+            return existing
+        }
+        let session = TerminalSession(attaching: name, harness: harness, configurationStorage: configurationStorage)
+        bindPersistence(session)
+        sessions.append(session)
+        selectSession(session)
+        session.startImmediately()
+        persistWindowState()
+        return session
+    }
+
+    /// 이 탭의 에이전트를 sm으로 옮긴다: 세션은 그대로 두고 탭만 떼어 낸 뒤, sm이 그 세션을 앞으로 띄운다.
+    /// 직접 띄운 탭(sm 모드가 아닐 때)은 옮길 것이 없어 false.
+    @discardableResult
+    func moveToSm(_ session: TerminalSession) -> Bool {
+        guard let name = session.detachForHandoff() else { return false }
+        sessions.removeAll { $0.id == session.id }
+        for child in sessions where child.parentID == session.id { child.parentID = nil }
+        if selectedSession?.id == session.id { selectedSession = sessions.first }
+        persistWindowState()
+        SmSessionBridge.reveal(name)
+        return true
     }
 
     func removeSession(_ session: TerminalSession) {

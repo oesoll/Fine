@@ -25,7 +25,13 @@ enum ControlCommands {
 
     // MARK: - 동기 명령
 
+    /// sm이 노치를 가진 맥에서 attention.* 는 Fine의 일이 아니다. 기본 'unknown command'로 답해야 sm이 이어받는다.
+    private static func refusesAttention(_ r: ControlRequest) -> Bool {
+        r.command.hasPrefix("attention.") && SmNotch.ownsNotch
+    }
+
     private static func dispatch(_ r: ControlRequest) throws -> Any {
+        if refusesAttention(r) { throw fail("unknown command: \(r.command)") }
         switch r.command {
         case "attention.post":
             return try AttentionStore.shared.post(r.args).json
@@ -102,6 +108,16 @@ enum ControlCommands {
             let (entry, _, session, _) = try tab(r)
             entry.state.removeSession(session)
             return ["closed": session.id.uuidString]
+
+        case "tab.handoff":
+            // 이 탭의 에이전트를 sm으로 옮긴다(세션은 그대로, Fine 탭만 떨어진다).
+            let (entry, _, session, _) = try tab(r)
+            guard let name = session.smSessionName else {
+                throw fail("this tab runs its agent directly (not an sm session) — nothing to move")
+            }
+            guard SmSessionBridge.smCLI != nil else { throw fail("sm CLI not found (SpaceManager)") }
+            entry.state.moveToSm(session)
+            return ["moved": session.id.uuidString, "smSession": name]
 
         case "tab.next", "tab.prev":
             let (entry, windowIndex) = try window(r)
@@ -213,7 +229,7 @@ enum ControlCommands {
             let data = try JSONEncoder.pretty.encode(WindowStateStorage.shared.states)
             return try JSONSerialization.jsonObject(with: data)
 
-        case "appearance.toggle", "session.find", "conversations.list", "models.list", "session.new", "session.resume", "window.new", "tab.read", "tab.theme", "tab.transcript":
+        case "appearance.toggle", "session.find", "conversations.list", "models.list", "session.new", "session.resume", "window.new", "tab.read", "tab.theme", "tab.transcript", "tab.attach":
             throw fail("internal: async command reached sync dispatcher")
         default:
             throw fail("unknown command: \(r.command)")
@@ -225,6 +241,7 @@ enum ControlCommands {
     /// 처리했으면 true. 창 생성은 SwiftUI가 다음 run loop에서 AppState를 만들기 때문에
     /// 레지스트리에 새 창이 등록될 때까지 폴링한 뒤 응답한다.
     private static func dispatchAsync(_ r: ControlRequest, completion: @escaping (ControlResponse) -> Void) throws -> Bool {
+        if refusesAttention(r) { return false }
         if r.command == "attention.snapshot" {
             guard let path = r.string("path"), path.hasPrefix("/") else { throw fail("absolute path required") }
             let compact = r.bool("compact") ?? false
@@ -246,6 +263,10 @@ enum ControlCommands {
                 do { try await AttentionRouter.open(item); completion(.ok(["opened": id])) }
                 catch { completion(.error(String(describing: error))) }
             }
+            return true
+        }
+        if r.command == "tab.attach" {
+            try attach(r, completion: completion)
             return true
         }
         switch r.command {
@@ -416,6 +437,48 @@ enum ControlCommands {
     /// `fine resume <id>`: 열려 있는 탭이면 선택하고, 아니면 저장된 구성(없으면 하네스
     /// 기본값)으로 이어 연다. 하네스는 `--harness`, 없으면 저장된 구성, 없으면 ID 모양으로
     /// 추정한다 — `ses_…`는 OpenCode, Codex 스토어에 있으면 Codex, 나머지는 Claude.
+    /// sm 세션 하나를 Fine 탭으로 가져온다(sm 패널 메뉴 "Fine으로 옮기기"가 부른다). NAME 또는 NAME@HOST.
+    /// 엔진은 sm이 아는 종류로 정한다(이 맥 세션) — 다른 기기 세션이면 harness 인자, 없으면 Claude로 본다.
+    private static func attach(_ r: ControlRequest, completion: @escaping (ControlResponse) -> Void) throws {
+        guard SmSessionBridge.isAvailable else { throw fail("sm-session not found — Fine is not in sm mode here") }
+        guard let name = r.string("name"), !name.isEmpty,
+              name.range(of: #"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}(@[A-Za-z0-9_][A-Za-z0-9_.-]{0,63})?$"#,
+                         options: .regularExpression) != nil else { throw fail("name required (NAME or NAME@HOST)") }
+        let requested = r.string("harness").flatMap(QuickHarness.init(rawValue:))
+        DispatchQueue.global(qos: .userInitiated).async {
+            var harness = requested ?? .claude
+            if requested == nil, !name.contains("@") {
+                guard let row = SmSessionBridge.rows().first(where: { $0.name == name }) else {
+                    completion(.error("no sm session named \(name) on this Mac (sm ls)"))
+                    return
+                }
+                switch row.kind {
+                case "codex": harness = .codex
+                case "claude": harness = .claude
+                default:
+                    completion(.error("\(name) is a \(row.kind ?? "shell") session — Fine tabs hold Claude and Codex"))
+                    return
+                }
+            }
+            DispatchQueue.main.async {
+                let run: (WindowEntry, Int) -> Void = { entry, windowIndex in
+                    let session = entry.state.attachSession(named: name, harness: harness)
+                    if r.bool("focus") ?? true { focus(entry) }
+                    completion(.ok(describe(session, index: index(of: session, in: entry), in: entry,
+                                            windowIndex: windowIndex)))
+                }
+                if let (entry, index) = try? window(r) {
+                    run(entry, index)
+                } else {
+                    openWindow { entry in
+                        guard let entry else { completion(.error("could not open a window")); return }
+                        run(entry, liveWindows().count - 1)
+                    }
+                }
+            }
+        }
+    }
+
     private static func resume(id: String, harnessRaw: String?, in entry: WindowEntry) throws {
         if let existing = entry.state.sessions.first(where: { $0.matchesConversation(sessionId: id) }) {
             entry.state.selectSession(existing)
@@ -546,6 +609,8 @@ enum ControlCommands {
             "effort": s.configuration.effort.rawValue,
             "proxy": s.configuration.proxyEnabled,
             "sessionId": s.resumableSessionID ?? "",
+            // 이 탭이 보는 sm 세션(sm 모드). sm reveal이 이것으로 Fine 탭을 찾는다. 직접 띄운 탭은 "".
+            "smSession": s.smSessionName ?? "",
             "running": s.isRunning,
             "fingerprint": s.controlFingerprint,
             "selected": entry.state.selectedSession?.id == s.id,

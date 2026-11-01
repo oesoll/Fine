@@ -72,6 +72,10 @@ final class AttentionStore: ObservableObject {
     var onAttention: (() -> Void)?
     private let file: URL?
     private var expiry: Timer?
+    /// sm이 노치를 가진 맥이면 이 저장소는 sm 노치를 비추는 거울이다(SmNotch): 올리기·지우기는 sm으로 보내고,
+    /// 목록은 sm에서 받아 둔다. 파일은 쓰지 않는다 — 원본은 sm이다.
+    private(set) var mirrorsSm = false
+    private var mirrorTimer: Timer?
     static let capacity = 200
     static let workingLease: TimeInterval = 3600
     static let doneLifetime: TimeInterval = 30
@@ -93,8 +97,41 @@ final class AttentionStore: ObservableObject {
     var waitingCount: Int { items.filter { $0.state.needsAttention }.count }
     var workingCount: Int { items.filter { $0.state == .working }.count }
 
+    /// sm 노치의 거울로 바꾼다(앱 시작 때 한 번). 목록은 3초마다, 그리고 올린 직후에 다시 받는다.
+    func mirrorSm() {
+        guard !mirrorsSm else { return }
+        mirrorsSm = true
+        expiry?.invalidate(); expiry = nil
+        refreshMirror()
+        mirrorTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshMirror() }
+        }
+        mirrorTimer?.tolerance = 1
+    }
+
+    private func refreshMirror() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let list = try? SmNotch.list() else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.mirrorsSm, list != self.items else { return }
+                    self.items = list
+                }
+            }
+        }
+    }
+
     @discardableResult
     func post(_ args: [String: Any], now: Date = Date()) throws -> AttentionItem {
+        if mirrorsSm {
+            // sm 노치에 올리고, 돌아온 항목을 거울에 바로 반영한다(사이드바 점이 3초를 기다리지 않게).
+            let result = try SmNotch.request("attention.post", args)
+            guard let json = result as? [String: Any], let item = AttentionItem(json: json) else {
+                throw AttentionError("sm returned no notification")
+            }
+            items = items.filter { $0.id != item.id } + [item]
+            return item
+        }
         func field(_ name: String, default fallback: String = "", max: Int) throws -> String {
             if let value = args[name], !(value is String) { throw AttentionError("\(name) must be a string") }
             let value = (args[name] as? String ?? fallback).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -141,6 +178,11 @@ final class AttentionStore: ObservableObject {
     }
 
     func dismiss(id: String) throws {
+        if mirrorsSm {
+            _ = try SmNotch.request("attention.dismiss", ["id": id])
+            items = items.filter { $0.id != id }
+            return
+        }
         guard items.contains(where: { $0.id == id }) else { throw AttentionError("notification not found") }
         try commit(items.filter { $0.id != id })
         scheduleExpiry()
@@ -158,7 +200,9 @@ final class AttentionStore: ObservableObject {
         scheduleExpiry(now: now)
     }
 
-    func start() { do { try expire() } catch { NSLog("Fine attention expiry failed: %@", String(describing: error)) } }
+    func start() {
+        guard !mirrorsSm else { return }
+        do { try expire() } catch { NSLog("Fine attention expiry failed: %@", String(describing: error)) } }
 
     private func commit(_ next: [AttentionItem]) throws {
         if let file {
