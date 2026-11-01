@@ -9,6 +9,23 @@ struct AttentionTests {
         ["host": host, "source": "%42", "key": key, "title": "결제 리팩터링", "message": "이 방향으로 진행할까요?", "state": state]
     }
 
+    /// 탭의 터미널 알림은 그 탭에 입력하면 완료로 내려간다(×를 누르지 않아도). 이미 지운 것은 다시 올리지 않는다.
+    @Test func terminalNotificationClearsOnInputAndStaysGoneOnceDismissed() throws {
+        let store = AttentionStore(file: nil)
+        let session = TerminalSession(name: "qa", launch: .resume(sessionId: "t"), configuration: .defaultConfiguration(for: .claude))
+        session.postTerminalNotification(title: "Claude Code", body: "Claude is waiting for your input", store: store)
+        let item = try #require(store.items.first)
+        #expect(item.key == session.terminalNotificationKey)
+        #expect(item.state == .waiting)
+        session.clearTerminalNotification(store: store)
+        #expect(store.items.first?.state == .done)
+        #expect(store.items.count == 1)
+
+        try store.dismiss(id: item.id)
+        session.clearTerminalNotification(store: store)
+        #expect(store.items.isEmpty)
+    }
+
     @Test func notchMatchesReportedSafeRegionsIncludingOffsetDisplays() {
         let display = AttentionDisplayGeometry(frame: CGRect(x: 0, y: 0, width: 1470, height: 956), safeTop: 32,
             left: CGRect(x: 0, y: 924, width: 645.5, height: 32),

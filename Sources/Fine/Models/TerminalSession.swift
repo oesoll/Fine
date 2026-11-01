@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import GhosttyTerminal
@@ -372,21 +373,54 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         self.sessionId == sessionId
     }
 
+    /// 이 탭의 터미널 알림 항목 key. sm 패널도 같은 모양(`terminal:<패널 UUID>`)으로 올린다.
+    var terminalNotificationKey: String { "terminal:\(id.uuidString.lowercased())" }
+    private var notificationInputMonitor: Any?
+
     @MainActor
-    private func postTerminalNotification(title: String, body: String) {
+    func postTerminalNotification(title: String, body: String, store: AttentionStore = .shared) {
         let message = body.isEmpty ? title : body
         guard !message.isEmpty else { return }
         do {
-            _ = try AttentionStore.shared.post([
+            _ = try store.post([
                 "source": "fine:\(id.uuidString.lowercased())",
-                "key": "terminal:\(id.uuidString.lowercased())",
+                "key": terminalNotificationKey,
                 "title": title.isEmpty ? name : title,
                 "message": String(message.prefix(4000)),
                 "state": "waiting",
             ])
+            if store === AttentionStore.shared { watchInputForNotification() }
         } catch {
             NSLog("Fine: terminal notification was not posted: %@", String(describing: error))
         }
+    }
+
+    /// 사용자가 이 탭에 입력하면 그 알림을 내린다 — seol-notch 알림이 그 칸의 다음 입력에 내려가는 것과 같고,
+    /// sm 패널의 터미널 알림도 같다. 전에는 ×로만 내려가서 지난 "입력을 기다립니다"가 노치에 쌓였다.
+    /// 알림이 떠 있는 동안에만 키를 엿본다.
+    @MainActor
+    private func watchInputForNotification() {
+        guard notificationInputMonitor == nil else { return }
+        notificationInputMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if let self, let surface = self.terminalView?.surface, event.window?.firstResponder === surface {
+                MainActor.assumeIsolated { self.clearTerminalNotification() }
+            }
+            return event
+        }
+    }
+
+    private func stopWatchingInputForNotification() {
+        if let notificationInputMonitor { NSEvent.removeMonitor(notificationInputMonitor) }
+        notificationInputMonitor = nil
+    }
+
+    /// 이 탭의 터미널 알림을 내린다(완료로 바꿔 30초 뒤 사라지게). 이미 지웠으면 아무것도 하지 않는다.
+    @MainActor
+    func clearTerminalNotification(store: AttentionStore = .shared) {
+        stopWatchingInputForNotification()
+        guard let item = store.items.first(where: { $0.key == terminalNotificationKey && $0.state.needsAttention }) else { return }
+        _ = try? store.post(["source": item.source, "key": item.key, "title": item.title,
+                             "message": "이어서 진행하고 있어요.", "state": "done"])
     }
 
     /// 끝난 탭을 다시 고르면 같은 대화를 새 표면으로 다시 띄운다(끝난 표면은 닫는다).
@@ -419,6 +453,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     /// 탭을 닫는다. 표면이 사라지면 이 자식과 대화할 수단이 영영 없어지므로, `force`와 상관없이 신호를
     /// 무시하는 자식(Claude Code)까지 유예 뒤 SIGKILL로 정리한다(`force`는 호출부 호환으로 남겨 둔다).
     func cleanup(force: Bool = false) {
+        stopWatchingInputForNotification()
         QuickConversationScanner.shared.untrack(owner: id)
         metadataGeneration = UUID()
         identityTimer?.invalidate()
@@ -431,6 +466,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
 
     /// 앱 종료 경로 — 비동기 승격이 실행될 기회가 없으므로 동기적으로 종료한다.
     func cleanupForTermination() {
+        stopWatchingInputForNotification()
         QuickConversationScanner.shared.untrack(owner: id)
         metadataGeneration = UUID()
         identityTimer?.invalidate()
