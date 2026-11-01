@@ -16,8 +16,9 @@ ditto .build/Fine.app /Applications/Fine.app
 
 ## 재시작 주의
 
-Fine 안에서 도는 에이전트가 Fine을 종료하면 자기 세션이 끊긴다.
-재시작 전에 `fine --json tabs`로 세션 ID를 남기고, 사용자에게 재개 방법을 알린 뒤 진행한다.
+sm 세션 탭은 앱 종료·탭 닫기에 화면만 떼고, 직접 띄운 탭은 앱과 함께 프로세스가 끝난다.
+재시작 전 `fine --json tabs`로 smSession·세션 ID를 확인한다. 직접 실행 탭이 있으면 재개 방법을 먼저 알리고,
+다시 연 뒤 기존 smSession과 엔진 세션이 같은지 확인한다. 명시적 종료는 `sm stop NAME`이다.
 
 - 프로세스 이름이 전체 경로라 `pkill -x Fine`은 매칭되지 않는다. PID로 잡을 것.
 - macOS에는 `setsid`가 없다. 백그라운드 재시작 스크립트에 쓰면 조용히 실패한다.

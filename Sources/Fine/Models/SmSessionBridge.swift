@@ -7,8 +7,8 @@ import Foundation
 /// Fine 탭은 그 세션을 `sm-session attach`로 보는 화면이 된다. 그래서 같은 세션을 sm 패널로 옮기거나
 /// 거꾸로 가져오는 것은 "어느 앱이 붙어 있느냐"만 바뀌는 일이다.
 ///
-/// 규칙: Fine에서 탭을 닫으면 에이전트가 실제로 끝난다(`sm-session stop`). Fine을 끄거나 다시
-/// 띄우는 것은 떼기만 한다. sm 세션 층이 없는 기계(공개 Fine)는 지금처럼 직접 띄운다.
+/// 탭 닫기·앱 종료는 화면만 뗀다. 에이전트를 끝내는 명시적 명령은 `sm stop NAME`이다.
+/// sm 세션 층이 없는 기계(공개 Fine)는 지금처럼 직접 띄우고 탭과 함께 종료한다.
 enum SmSessionBridge {
     /// sm 세션 층의 실행 파일. `FINE_SM_SESSION`으로 바꾸거나(시험) `FINE_SM_MODE=0`으로 끈다.
     static var executable: String? {
@@ -199,7 +199,7 @@ enum SmSessionBridge {
         }
     }
 
-    /// 에이전트를 실제로 끝낸다(탭을 닫을 때). 기다리지 않는다.
+    /// 에이전트를 명시적으로 끝낸다. 탭 닫기와 별개이며, 기다리지 않는다.
     static func stop(_ name: String) {
         guard let executable else { return }
         DispatchQueue.global(qos: .utility).async {

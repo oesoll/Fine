@@ -79,4 +79,27 @@ final class SmSessionBridgeTests: XCTestCase {
             XCTAssertNil(decodedOld.smSessionName)
         }
     }
+    @MainActor
+    func testClosingHeldTabNeverStopsTheSharedSession() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let command = directory.appendingPathComponent("sm-session")
+        let log = directory.appendingPathComponent("calls")
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '\(log.path)'\n".write(to: command, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: command.path)
+        let previous = ProcessInfo.processInfo.environment["FINE_SM_SESSION"]
+        setenv("FINE_SM_SESSION", command.path, 1)
+        defer {
+            if let previous { setenv("FINE_SM_SESSION", previous, 1) } else { unsetenv("FINE_SM_SESSION") }
+        }
+        for force in [false, true] {
+            let tab = TerminalSession(attaching: "shared-agent", harness: .claude)
+            tab.cleanup(force: force)
+            XCTAssertEqual(tab.smSessionName, "shared-agent")
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "closing a view invoked lifecycle commands")
+    }
+
 }

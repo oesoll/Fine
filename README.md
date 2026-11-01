@@ -26,6 +26,11 @@ them in one window as conversations you can leave and come back to.
 Nothing is wrapped or reimplemented. Each conversation is the real agent,
 running the way it runs in a terminal, keeping its own history.
 
+When the optional sm session layer is installed, tabs attach to named sessions.
+Closing a tab or quitting Fine leaves those sessions running. Use `sm stop NAME`
+to stop one deliberately and `sm resume NAME` to continue its conversation.
+Without sm, Fine owns the terminal process and closing its tab ends that process.
+
 ## Why
 
 Four agents means four terminal windows and nowhere that remembers which

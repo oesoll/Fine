@@ -3,7 +3,7 @@ import GhosttyTerminal
 import XCTest
 @testable import Fine
 
-/// sm 모드를 실제 sm-session으로 끝까지: 띄우기 → 앱 종료(세션은 산다) → 다시 붙기(같은 holder) → 탭 닫기(끝남),
+/// sm 모드를 실제 sm-session으로 끝까지: 띄우기 → 앱 종료(세션은 산다) → 다시 붙기(같은 holder) → 탭 닫기(세션은 산다),
 /// 그리고 sm에서 옮겨 온 세션 붙기 · sm으로 옮기기. 진짜 Claude 세션을 Fine의 기본 작업 폴더에 띄우므로 켤 때만 돈다:
 /// `CLAUDE_CODE_NO_FLICKER=0 FINE_SM_INTEGRATION=1 FINE_SM_SESSION=~/.smux/bin/sm-session FINE_SM_CLI=<reveal을 적는 가짜> swift test --filter SmMode`
 ///
@@ -43,7 +43,7 @@ final class SmModeIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testHeldTabSurvivesQuitReattachesAndEndsOnClose() throws {
+    func testHeldTabSurvivesQuitReattachesAndSurvivesClose() throws {
         _ = NSApplication.shared
         let session = TerminalSession(launch: .blank, configuration: .defaultConfiguration(for: .claude))
         let name = SmSessionBridge.name(for: session.id)
@@ -69,9 +69,11 @@ final class SmModeIntegrationTests: XCTestCase {
             !(restored.terminalView?.readScreen(lines: 40) ?? "").isEmpty }, "did not reattach")
         XCTAssertEqual(row(name)?["hold"] as? String, holder, "a new agent was started instead of reattaching")
 
-        // 탭 닫기: 에이전트가 실제로 끝난다.
+        // 탭 닫기: 화면만 닫고 동일한 holder를 유지한다.
         restored.cleanup(force: true)
-        XCTAssertTrue(wait(25) { (self.row(name)?["status"] as? String) != "running" }, "closing the tab left the agent running")
+        RunLoop.main.run(until: Date().addingTimeInterval(2))
+        XCTAssertEqual(row(name)?["status"] as? String, "running", "closing a view ended its shared session")
+        XCTAssertEqual(row(name)?["hold"] as? String, holder)
     }
 
     /// 이 세션을 보는 attach 프로세스 수(attach 하나가 login 래퍼와 본체 둘로 보인다 — 있고 없음만 본다).
@@ -140,7 +142,7 @@ final class SmModeIntegrationTests: XCTestCase {
                       "a key did not wake the stopped session")
         XCTAssertTrue(wait(10) { (view.readScreen(lines: 40) ?? "").contains("x") }, "the held key was lost: \(view.readScreen(lines: 12) ?? "nil") live=\(view.surface.map { "\($0.isProcessRunning)" } ?? "nil") responder=\(String(describing: window.firstResponder))")
         session.cleanup(force: true)
-        XCTAssertTrue(wait(30) { (self.row(name)?["status"] as? String) != "running" })
+        XCTAssertEqual(row(name)?["status"] as? String, "running")
     }
 
     @MainActor
