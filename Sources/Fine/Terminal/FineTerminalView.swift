@@ -27,7 +27,11 @@ final class FineTerminalView: NSView {
     /// 터미널 프로그램이 보낸 데스크톱 알림(OSC 9/777): 제목, 본문.
     var onNotification: ((String, String) -> Void)?
 
-    private(set) var surface: GhosttyTerminalView?
+    /// 표면을 두는 무대. sm 세션 탭은 가려지면 마지막 장면을 남기고, 다시 보이면 그 위에 덮개를 얹은 채
+    /// 새로 붙는다(쉬는 중이면 어두운 막 → 깨는 중 → 조용해지면 걷힘). 직접 띄운 탭은 표면 하나뿐이다.
+    let stage = GhosttySessionStage()
+    /// 지금 키와 쓰기를 받는(또는 걷히면 받을) 표면.
+    var surface: GhosttyTerminalView? { stage.live }
     private let clip = FlippedView()
     private let statusRail: TerminalStatusRail
     private var palette: TerminalPalette
@@ -47,6 +51,10 @@ final class FineTerminalView: NSView {
         clip.wantsLayer = true
         clip.layer?.masksToBounds = true
         addSubview(clip)
+        stage.theme = palette.ghosttyTheme
+        // 신호를 무시하는 자식(직접 띄운 Claude)까지 정리한다. sm attach에는 해가 없다.
+        stage.dispose = { $0.terminate(reapingAfter: Self.terminationGrace) }
+        clip.addSubview(stage)
         addSubview(statusRail)
         observeAppearance()
     }
@@ -58,10 +66,9 @@ final class FineTerminalView: NSView {
     // MARK: - 표면
 
     /// 새 표면으로 명령을 띄운다. 이전 표면이 있으면 닫는다(남은 자식은 정리한다).
+    /// `covered`: 지금 장면 아래에 깔고 덮개가 걷힐 때까지 보이지 않게 둔다(sm 세션에 다시 붙을 때).
     @discardableResult
-    func start(_ launch: GhosttyTerminalView.Launch) -> GhosttyTerminalView {
-        surface?.removeFromSuperview()
-        surface?.terminate(reapingAfter: Self.terminationGrace)
+    func start(_ launch: GhosttyTerminalView.Launch, covered: Bool = false) -> GhosttyTerminalView {
         let size = bounds.width > 0 && bounds.height > 0 ? bounds.size : Self.lastBoundsSize
         let frames = Self.layout(size: size, cellHeight: Self.lastCellHeight, cropsFooterRow: cropsFooterRow)
         let view = GhosttyTerminalView(launch: launch, theme: palette.ghosttyTheme, initialSize: frames.surface.size)
@@ -74,11 +81,39 @@ final class FineTerminalView: NSView {
             self.onExit?()
         }
         view.onNotification = { [weak self] title, body in self?.onNotification?(title, body) }
-        view.frame = frames.surface
-        clip.addSubview(view)
-        surface = view
+        stage.frame = frames.surface
+        if covered { stage.attach(view) } else { stage.show(view) }
         needsLayout = true
         return view
+    }
+
+    /// 가려진 탭: 세션을 보던 attach만 내리고 그 화면을 장면으로 남긴다(다시 보일 때 덮개 아래 그림).
+    func lower() {
+        if stage.isCovered, stage.scene != nil {
+            // 깨우던 중에 가려졌다: 새 표면을 치우고 원래 장면을 남긴다.
+            stage.cancelAttach()
+            stage.setLook(.clear)
+            return
+        }
+        stage.live?.endProcess()
+        stage.freeze(look: .clear)
+    }
+
+    /// 붙어 있던 세션이 스스로 끝났다(멈춤·끊김): 마지막 화면 위에 어두운 막.
+    func rest(caption: String?) {
+        stage.caption = caption
+        if stage.isCovered, stage.scene != nil {
+            stage.cancelAttach()
+            return
+        }
+        stage.live?.endProcess()
+        stage.freeze(look: .dimmed)
+    }
+
+    /// 앱을 다시 켜 프레임이 없을 때: 세션 층이 남긴 화면 바이트로 장면을 만든다.
+    func rest(replaying screen: Data) {
+        stage.caption = nil
+        stage.freeze(replaying: screen, look: .waking)
     }
 
     var failedToStart: Bool { surface?.failedToStart ?? false }
@@ -115,7 +150,7 @@ final class FineTerminalView: NSView {
     }
 
     func focusTerminal() {
-        surface?.focusTerminal()
+        stage.focus()
     }
 
     /// 신호를 무시하는 자식(Claude Code는 SIGHUP·SIGTERM을 무시한다)에게 SIGKILL로 승격하기까지의 유예.
@@ -124,16 +159,15 @@ final class FineTerminalView: NSView {
     /// sm 세션을 보던 표면을 뗀다: `sm-session attach`만 SIGHUP으로 끝나고 에이전트는 그대로 산다.
     /// 붙은 클라이언트는 에이전트와 다른 프로세스 그룹이라 정리(reap)할 것이 없다.
     func detach() {
-        surface?.terminate()
-        surface?.removeFromSuperview()
-        surface = nil
+        stage.dispose = { $0.terminate() }
+        stage.clear()
     }
 
     /// 탭을 닫는다. `synchronously`는 앱 종료 경로 — 비동기 승격이 실행될 기회가 없다.
     func terminate(synchronously: Bool = false) {
-        surface?.terminate(reapingAfter: synchronously ? 0.5 : Self.terminationGrace, synchronously: synchronously)
-        surface?.removeFromSuperview()
-        surface = nil
+        stage.dispose = { $0.terminate(reapingAfter: synchronously ? 0.5 : Self.terminationGrace,
+                                       synchronously: synchronously) }
+        stage.clear()
     }
 
     // MARK: - 배치
@@ -173,11 +207,13 @@ final class FineTerminalView: NSView {
         super.layout()
         guard bounds.width > 0, bounds.height > 0 else { return }
         if window != nil { Self.lastBoundsSize = bounds.size }
-        let frames = Self.layout(size: bounds.size, cellHeight: surface?.cellSize.height ?? Self.lastCellHeight,
-                                 cropsFooterRow: cropsFooterRow)
+        let cellHeight = (surface ?? stage.scene)?.cellSize.height ?? Self.lastCellHeight
+        let frames = Self.layout(size: bounds.size, cellHeight: cellHeight, cropsFooterRow: cropsFooterRow)
         clip.frame = frames.clip
         statusRail.frame = frames.status
-        if let surface, surface.frame != frames.surface { surface.frame = frames.surface }
+        if stage.frame != frames.surface { stage.frame = frames.surface }
+        // 꼬리 줄을 가리면 무대 아래 한 줄이 칸 밖이다 — 막의 글을 그 위로.
+        stage.captionBottomInset = (frames.surface.height - frames.clip.height) + 12
     }
 
     /// 여백(상태줄 밖)을 눌러도 터미널이 키를 받는다.
@@ -203,6 +239,8 @@ final class FineTerminalView: NSView {
     func apply(_ palette: TerminalPalette) {
         self.palette = palette
         surface?.setTheme(palette.ghosttyTheme)
+        stage.scene?.setTheme(palette.ghosttyTheme)
+        stage.theme = palette.ghosttyTheme
         statusRail.isDark = palette.isDark
     }
 }

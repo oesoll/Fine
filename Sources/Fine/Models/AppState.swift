@@ -12,7 +12,14 @@ final class AppState: ObservableObject {
     @Published var isBackgroundPickerPresented = false
     @Published var sessions: [TerminalSession] = []
     @Published var selectedSession: TerminalSession? {
-        didSet { observeSelectedSession() }
+        didSet {
+            // 보이는 탭만 sm 세션에 붙는다(가려진 탭은 내려서 세션이 잠들 수 있게).
+            if oldValue !== selectedSession {
+                oldValue?.isVisible = false
+                selectedSession?.isVisible = true
+            }
+            observeSelectedSession()
+        }
     }
     private var selectedSessionObservation: AnyCancellable?
 
@@ -36,6 +43,7 @@ final class AppState: ObservableObject {
             sessions.forEach(bindPersistence)
             normalizeGroups()
             selectedSession = sessions.first { $0.id == claimed.selectedSessionID }
+            selectedSession?.isVisible = true   // init 안에서는 didSet이 불리지 않는다
             resumeRestoredSessions()
         } else {
             if let requestedWindowStateID, !storage.contains(id: requestedWindowStateID) {
@@ -58,7 +66,7 @@ final class AppState: ObservableObject {
     private func resumeRestoredSessions() {
         var claimedConversations: Set<String> = []
         for session in sessions {
-            // sm 세션을 보던 탭은 그 세션에 다시 붙는다 — 살아 있으면 그대로, 끝났으면 sm이 되살린다.
+            // sm 세션을 보던 탭은 그 세션을 다시 맡는다. 붙는 것은 보이는 탭뿐이다 — 붙으면서 쉬던 세션을 깨운다.
             if session.smSessionName != nil, SmSessionBridge.isAvailable {
                 session.startImmediately()
                 continue

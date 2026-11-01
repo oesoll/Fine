@@ -37,6 +37,22 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     private var attachesOnly = false
     /// 늦게 끝난 spawn이 그 사이 다시 띄운 표면을 건드리지 않게.
     private var heldGeneration = UUID()
+    /// 창에서 지금 보이는 탭인가(창의 선택된 탭). sm 세션 탭은 보일 때만 그 세션에 붙는다 — 가려진 탭까지
+    /// 붙어 있으면 세션 층에는 늘 "보는 중"으로 보여 쓰지 않는 세션도 잠들지 못한다.
+    var isVisible = false {
+        didSet { if isVisible != oldValue { visibilityDidChange() } }
+    }
+    /// 이 탭의 표면이 지금 sm 세션에 붙어 있는가.
+    private var heldAttached = false
+    /// 세션이 있다(새 탭이면 띄우기가 끝났다) — 그 전에 붙으면 띄우기와 붙기가 같은 세션을 두고 다툰다.
+    private var heldReady = false
+    /// 붙기·내리기마다 바뀐다 — 늦게 온 상태 줄이나 확인 결과가 다음 붙기를 건드리지 않게.
+    private var raiseGeneration = UUID()
+    private var stateWatch: SmSessionBridge.StateWatch?
+    /// 마지막으로 가려진 때. 세션 층은 65분 쉰 세션을 재우므로, 그보다 오래 가려졌으면 깨는 모습으로 시작한다.
+    private var loweredAt: Date?
+    /// 세션이 사라졌을 때(sm 기록이 없음) 같은 대화로 다시 띄우는 데 쓰는 환경.
+    private var heldEnvironment: [String: String] = [:]
 
     var resumableSessionID: String? { sessionId }
     var currentLaunch: QuickLaunch {
@@ -142,7 +158,7 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
             }
         }
         view.onExit = { [weak self] in
-            DispatchQueue.main.async { self?.isRunning = false }
+            DispatchQueue.main.async { self?.surfaceDidExit() }
         }
         // 터미널 프로그램이 보낸 알림(OSC 9/777)은 macOS 알림이 아니라 Fine 노치에 이 탭의 항목으로 올린다 —
         // 누르면 이 탭이 열리고, 훅이 올리는 알림과 한 곳에 모인다.
@@ -200,14 +216,17 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         // sm 모드: 에이전트는 sm 세션으로 띄우고 이 탭은 거기에 붙는다 — Fine이 내려가도 대화가 산다.
         if let executable = SmSessionBridge.executable {
             let name = smSessionName ?? SmSessionBridge.name(for: id)
-            if attachesOnly {
-                startHeld(name: name, spawn: nil, environment: environment, directory: directory, executable: executable)
+            heldEnvironment = environment
+            // 이미 있는 세션(다시 연 탭·sm에서 옮겨 온 탭)은 띄우지 않는다 — 띄우기는 잠든 세션까지 깨운다.
+            // 보일 때 붙으면서 깨운다. 새 탭만 여기서 세션을 만든다.
+            if attachesOnly || smSessionName != nil {
+                startHeld(name: name, spawn: nil, environment: environment, executable: executable)
                 return
             }
             if let spawn = SmSessionBridge.spawn(name: name, tabID: id, launch: effectiveLaunch,
                                                 configuration: configuration, workingDirectory: directory,
                                                 path: environment["PATH"] ?? "") {
-                startHeld(name: name, spawn: spawn, environment: environment, directory: directory, executable: executable)
+                startHeld(name: name, spawn: spawn, environment: environment, executable: executable)
                 return
             }
         }
@@ -235,42 +254,200 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         beginIdentityUpdates()
     }
 
-    /// sm 세션을 띄우고(이미 돌고 있으면 그대로, 끝나 있으면 되살린다) 그 세션에 이 탭의 표면을 붙인다.
-    /// spawn은 에이전트가 등록될 때까지 몇 초 걸릴 수 있어 뒤에서 하고, 표면은 끝난 뒤 메인에서 띄운다.
+    /// 이 탭의 sm 세션을 맡는다. `spawn`이 있으면 세션을 만들고(에이전트가 등록될 때까지 몇 초 — 뒤에서),
+    /// 보이는 탭이면 그 세션에 붙는다. 가려진 탭은 세션만 돌고 붙지 않는다.
     private func startHeld(name: String, spawn: SmSessionBridge.Spawn?, environment: [String: String],
-                           directory: String, executable: String) {
+                           executable: String) {
         if smSessionName != name {
             smSessionName = name
             persistenceHandler?()
         }
         isRunning = true
         startError = nil
-        let view = getOrCreateTerminal()
-        let attach = GhosttyTerminalView.Launch(command: SmSessionBridge.attachCommand(name, executable: executable),
-                                                workingDirectory: directory)
+        _ = getOrCreateTerminal()
         let generation = UUID()
         heldGeneration = generation
+        heldReady = spawn == nil
+        guard let spawn else {
+            beginIdentityUpdates()
+            if isVisible { raiseHeld() }
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var failure: String?
-            if let spawn {
-                do { try SmSessionBridge.run(spawn, environment: environment, executable: executable) }
-                catch { failure = String(describing: error) }
-            }
+            do { try SmSessionBridge.run(spawn, environment: environment, executable: executable) }
+            catch { failure = String(describing: error) }
             DispatchQueue.main.async {
-                guard let self, self.heldGeneration == generation, self.terminalView === view else { return }
+                guard let self, self.heldGeneration == generation else { return }
                 if let failure {
                     self.startError = "sm 세션을 띄우지 못했습니다: \(failure)"
                     self.isRunning = false
                     return
                 }
-                if view.start(attach).failedToStart {
-                    self.startError = "터미널 시작 실패: libghostty 표면을 만들지 못했습니다"
-                    self.isRunning = false
-                    return
-                }
+                self.heldReady = true
                 self.beginIdentityUpdates()
+                if self.isVisible { self.raiseHeld() }
             }
         }
+    }
+
+    private var isHeld: Bool { smSessionName != nil && SmSessionBridge.isAvailable }
+
+    private func visibilityDidChange() {
+        guard isHeld, started, startError == nil else { return }
+        if isVisible { raiseHeld() } else { lowerHeld() }
+    }
+
+    /// 보이는 탭을 그 세션에 붙인다. 화면(장면)이 있으면 그 아래에 새 표면을 깔고 덮개를 얹는다 — 깨어 있는
+    /// 세션이면 막 없이(같은 화면이 이어진다), 쉬는 중이면 숨쉬는 막으로. 세션 층이 ready를 알리고 화면이
+    /// 조용해지면 걷힌다. 화면이 없으면(앱을 다시 켰다) 깨어 있는 세션은 바로 붙고, 쉬는 세션은 세션 층이
+    /// 남긴 마지막 화면으로 장면을 만든다.
+    private func raiseHeld() {
+        guard let name = smSessionName, let executable = SmSessionBridge.executable,
+              heldReady, !heldAttached, let view = terminalView else { return }
+        heldAttached = true
+        let generation = UUID()
+        raiseGeneration = generation
+        let attach = GhosttyTerminalView.Launch(command: SmSessionBridge.attachCommand(name, executable: executable),
+                                                workingDirectory: QuickSessionPolicy.ensureWorkingDirectory())
+        if view.stage.hasFrame {
+            let mayBeAsleep = loweredAt.map { Date().timeIntervalSince($0) > 60 * 60 } ?? false
+            let resting = view.stage.isCovered && view.stage.look != .clear
+            view.stage.caption = nil
+            connect(view, name: name, attach: attach, covered: true,
+                    look: mayBeAsleep || resting ? .waking : .clear, generation: generation)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let state = SmSessionBridge.state(name)
+            let screen = state == "ready" ? nil : SmSessionBridge.screen(name)
+            DispatchQueue.main.async {
+                guard let self, self.raiseGeneration == generation, let view = self.terminalView else { return }
+                if state == "gone" {
+                    self.heldAttached = false
+                    self.reopenHeld()
+                    return
+                }
+                if let screen { view.rest(replaying: screen) }
+                self.connect(view, name: name, attach: attach, covered: screen != nil, look: .waking,
+                             generation: generation)
+            }
+        }
+    }
+
+    private func connect(_ view: FineTerminalView, name: String, attach: GhosttyTerminalView.Launch, covered: Bool,
+                         look: GhosttySessionStage.Look, generation: UUID) {
+        if view.start(attach, covered: covered).failedToStart {
+            heldAttached = false
+            startError = "터미널 시작 실패: libghostty 표면을 만들지 못했습니다"
+            return
+        }
+        if covered { view.stage.setLook(look) }
+        // 붙어 있는 내내 세션 상태를 본다: 덮인 동안은 ready가 걷을 신호이고, 걷힌 뒤에 멈춤·잠듦·사라짐이
+        // 오면 다시 덮는다. 세션이 멈춰도 attach는 끝나지 않고 키를 기다리므로 끝남으로는 알 수 없다.
+        stopStateWatch()
+        stateWatch = SmSessionBridge.StateWatch(name: name) { [weak self, weak view] state in
+            guard let self, self.raiseGeneration == generation, let view, view.stage.live != nil else { return }
+            if view.stage.isCovered {
+                if state == "ready" { view.stage.revealWhenQuiet() } else if state != "gone" { view.stage.setLook(.waking) }
+            } else if ["stopped", "asleep", "gone"].contains(state) {
+                self.sessionWentAway(state)
+            }
+        }
+        guard covered else { return }
+        // 세션 층이 끝내 ready를 알리지 않아도 영영 덮여 있지 않게.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self, weak view] in
+            guard let self, self.raiseGeneration == generation, let view, view.stage.isCovered,
+                  view.stage.live != nil else { return }
+            view.stage.reveal()
+        }
+    }
+
+    /// 가려진 탭: 세션을 보던 attach만 내리고 화면은 남긴다. 세션은 그대로 돌고, 쓰지 않으면 세션 층이 재운다.
+    private func lowerHeld() {
+        guard heldAttached else { return }
+        heldAttached = false
+        raiseGeneration = UUID()
+        stopStateWatch()
+        terminalView?.lower()
+        loweredAt = Date()
+    }
+
+    /// 붙어 있던 attach가 스스로 끝났다. 직접 띄운 탭은 자식이 끝난 것이고, sm 세션 탭은 세션이 멈췄거나
+    /// 사라졌거나 연결이 끊긴 것이다 — 마지막 화면 위에 어두운 막을 얹고 세션 상태를 본다.
+    private func surfaceDidExit() {
+        guard isHeld, let name = smSessionName, let view = terminalView else {
+            isRunning = false
+            return
+        }
+        heldAttached = false
+        stopStateWatch()
+        view.rest(caption: nil)
+        let generation = UUID()
+        raiseGeneration = generation
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let state = SmSessionBridge.state(name)
+            DispatchQueue.main.async {
+                guard let self, self.raiseGeneration == generation, let view = self.terminalView else { return }
+                switch state {
+                case "stopped":
+                    view.stage.caption = "멈춤 · 아무 키나 누르면 깨어납니다"
+                    view.stage.onKeyWhileResting = { [weak self] in self?.raiseHeld() }
+                case "gone", nil:
+                    view.stage.caption = "세션이 끝났습니다 · 아무 키나 누르면 이 대화를 다시 엽니다"
+                    view.stage.onKeyWhileResting = { [weak self] in self?.reopenHeld() }
+                default:
+                    // 쉬는 중·깨는 중·준비됨(연결만 끊김): 보이는 탭이면 바로 다시 붙는다.
+                    view.stage.onKeyWhileResting = { [weak self] in self?.raiseHeld() }
+                    if self.isVisible { self.raiseHeld() }
+                }
+            }
+        }
+    }
+
+    /// 보고 있던 세션이 멈췄거나(sm stop) 잠들었거나 사라졌다: attach를 내리고 그 화면 위에 어두운 막을 얹는다.
+    /// 멈춘 세션은 저절로 깨우지 않고 키를 기다린다. 사라진 세션은 키를 누르면 같은 대화로 다시 연다.
+    private func sessionWentAway(_ state: String) {
+        guard heldAttached, let view = terminalView else { return }
+        heldAttached = false
+        raiseGeneration = UUID()
+        stopStateWatch()
+        switch state {
+        case "gone":
+            view.rest(caption: "세션이 끝났습니다 · 아무 키나 누르면 이 대화를 다시 엽니다")
+            view.stage.onKeyWhileResting = { [weak self] in self?.reopenHeld() }
+        case "asleep":
+            view.rest(caption: nil)
+            view.stage.onKeyWhileResting = { [weak self] in self?.raiseHeld() }
+            if isVisible { raiseHeld() }
+        default:
+            view.rest(caption: "멈춤 · 아무 키나 누르면 깨어납니다")
+            view.stage.onKeyWhileResting = { [weak self] in self?.raiseHeld() }
+        }
+    }
+
+    /// sm 기록까지 사라진 세션을 같은 대화로 다시 띄운다(아는 대화가 없으면 빈 대화).
+    private func reopenHeld() {
+        guard let name = smSessionName, let executable = SmSessionBridge.executable, !heldAttached else { return }
+        let launch: QuickLaunch = sessionId.map { .resume(sessionId: $0) } ?? .blank
+        guard !attachesOnly,
+              let spawn = SmSessionBridge.spawn(name: name, tabID: id, launch: launch, configuration: configuration,
+                                                workingDirectory: QuickSessionPolicy.ensureWorkingDirectory(),
+                                                path: heldEnvironment["PATH"] ?? ProcessInfo.processInfo.environment["PATH"] ?? "")
+        else {
+            startError = "sm 세션 \(name)이 없습니다"
+            isRunning = false
+            return
+        }
+        terminalView?.stage.caption = nil
+        terminalView?.stage.setLook(.waking)
+        let environment = heldEnvironment.isEmpty ? ProcessInfo.processInfo.environment : heldEnvironment
+        startHeld(name: name, spawn: spawn, environment: environment, executable: executable)
+    }
+
+    private func stopStateWatch() {
+        stateWatch?.stop()
+        stateWatch = nil
     }
 
     /// 실행 파일과 인자를 libghostty가 띄울 셸 한 줄로. libghostty는 이 줄을 bash로 `exec`하므로 낱말마다
@@ -507,6 +684,15 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
 
     /// 끝난 탭을 다시 고르면 같은 대화를 새 표면으로 다시 띄운다(끝난 표면은 닫는다).
     func restartIfDead() {
+        if isHeld, started {
+            if startError != nil {
+                startError = nil
+                startProcess()
+            } else if isVisible, !heldAttached {
+                raiseHeld()
+            }
+            return
+        }
         guard started, terminalView?.isProcessRunning != true else { return }
         startError = nil
         startProcess()
@@ -521,6 +707,14 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     var hasTerminal: Bool { terminalView != nil }
 
     func readScreen(lines: Int, completion: @escaping (String?) -> Void) {
+        // 가려진 sm 세션 탭은 붙어 있지 않다 — 세션 층이 가진 화면을 읽는다.
+        if isHeld, !heldAttached, let name = smSessionName {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let text = SmSessionBridge.tail(name, lines: lines)
+                DispatchQueue.main.async { completion(text) }
+            }
+            return
+        }
         completion(terminalView?.readScreen(lines: lines))
     }
 
@@ -579,6 +773,9 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
 
     /// 붙어 있던 `sm-session attach`만 끝낸다(에이전트는 holder 아래에서 계속 돈다).
     private func detachSurface() {
+        heldAttached = false
+        raiseGeneration = UUID()
+        stopStateWatch()
         stopUpdates()
         terminalView?.detach()
         terminalView?.removeFromSuperview()

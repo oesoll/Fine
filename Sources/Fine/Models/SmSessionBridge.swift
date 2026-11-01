@@ -112,8 +112,79 @@ enum SmSessionBridge {
     }
 
     /// 표면이 띄울 명령: 그 세션을 이 화면에 붙인다(끝나 있으면 sm-session이 먼저 되살리고, 잠들어 있으면 깨운다).
+    /// `--no-screen`: 끝난 세션의 저장 화면을 attach가 칠하지 않는다 — 마지막 장면은 Fine이 덮개로 보인다.
+    /// 깨어 있는 세션이면 지금 화면은 그대로 칠해진다(11/01 확인).
     static func attachCommand(_ name: String, executable: String) -> String {
-        [executable, "attach", name].map(TerminalSession.shellQuoted).joined(separator: " ")
+        [executable, "attach", name, "--no-screen"].map(TerminalSession.shellQuoted).joined(separator: " ")
+    }
+
+    /// 화면이 보여야 할 세션 상태: asleep | stopped | waking | ready | tmux | gone. 블로킹(약 0.15초).
+    static func state(_ name: String) -> String? {
+        guard let executable,
+              let result = try? invoke(executable, ["state", name, "--json"],
+                                       environment: ProcessInfo.processInfo.environment, timeout: 10),
+              result.status == 0 else { return nil }
+        return parseState(result.output)
+    }
+
+    static func parseState(_ line: String) -> String? {
+        guard let data = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return json["state"] as? String
+    }
+
+    /// 세션이 끝날 때 남긴 마지막 화면 바이트(앱을 다시 켜 프레임이 없을 때 장면을 만든다). 블로킹.
+    static func screen(_ name: String) -> Data? {
+        guard let executable,
+              let result = try? invokeData(executable, ["screen", name], timeout: 10),
+              result.status == 0, !result.output.isEmpty else { return nil }
+        return result.output
+    }
+
+    /// 화면에 보이는 동안의 세션 상태(`sm-session state NAME --watch --json`). 바뀔 때와 20초마다 한 줄.
+    final class StateWatch {
+        private let process = Process()
+        private var buffer = Data()
+
+        init?(name: String, onState: @escaping (String) -> Void) {
+            guard let executable = SmSessionBridge.executable else { return nil }
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = ["state", name, "--watch", "--json"]
+            process.standardInput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let chunk = handle.availableData
+                guard let self else { return }
+                guard !chunk.isEmpty else { handle.readabilityHandler = nil; return }
+                self.buffer.append(chunk)
+                while let newline = self.buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                    let line = String(decoding: self.buffer[self.buffer.startIndex..<newline], as: UTF8.self)
+                    self.buffer.removeSubrange(self.buffer.startIndex...newline)
+                    if let state = SmSessionBridge.parseState(line) {
+                        DispatchQueue.main.async { onState(state) }
+                    }
+                }
+            }
+            do { try process.run() } catch { return nil }
+        }
+
+        func stop() {
+            (process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning { process.terminate() }
+        }
+
+        deinit { stop() }
+    }
+
+    /// 보이지 않는 탭의 화면 글(`fine read`) — 그 탭은 붙어 있지 않다.
+    static func tail(_ name: String, lines: Int) -> String? {
+        guard let executable,
+              let result = try? invoke(executable, ["tail", name, "--lines", String(lines)],
+                                       environment: ProcessInfo.processInfo.environment, timeout: 10),
+              result.status == 0 else { return nil }
+        return result.output
     }
 
     struct Failure: Error, CustomStringConvertible {
@@ -169,6 +240,27 @@ enum SmSessionBridge {
         DispatchQueue.global(qos: .userInitiated).async {
             _ = try? invoke(cli, ["reveal", name], environment: ProcessInfo.processInfo.environment, timeout: 20)
         }
+    }
+
+    private static func invokeData(_ executable: String, _ arguments: [String],
+                                   timeout: TimeInterval) throws -> (status: Int32, output: Data) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let out = Pipe()
+        process.standardOutput = out
+        try process.run()
+        var output = Data()
+        let read = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async { output = out.fileHandleForReading.readDataToEndOfFile(); read.signal() }
+        if read.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            throw Failure(description: "sm-session \(arguments.first ?? "") 시간 초과")
+        }
+        process.waitUntilExit()
+        return (process.terminationStatus, output)
     }
 
     private static func invoke(_ executable: String, _ arguments: [String], environment: [String: String],
