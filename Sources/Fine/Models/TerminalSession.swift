@@ -752,10 +752,12 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
         DispatchQueue.main.async { [weak self] in self?.terminalView?.focusTerminal() }
     }
 
-    /// sm 탭은 화면만 닫는다. 같은 이름은 sm/Fine 어디에서든 다시 붙을 수 있다.
-    /// 직접 띄운 프로세스는 표면이 유일한 소유자이므로 종료한다. 명시적 세션 종료는 `sm stop NAME`이다.
+    /// 탭을 닫는다. 표면이 사라지면 이 자식과 대화할 수단이 영영 없어지므로, `force`와 상관없이 신호를
+    /// 무시하는 자식(Claude Code)까지 유예 뒤 SIGKILL로 정리한다(`force`는 호출부 호환으로 남겨 둔다).
+    /// sm 세션이면 그 세션을 끝낸다 — Fine에서 탭을 닫으면 에이전트가 실제로 끝나야 한다.
     func cleanup(force: Bool = false) {
-        if smSessionName != nil {
+        if let held = smSessionName {
+            SmSessionBridge.stop(held)
             detachSurface()
             return
         }

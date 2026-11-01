@@ -16,9 +16,9 @@ ditto .build/Fine.app /Applications/Fine.app
 
 ## 재시작 주의
 
-sm 세션 탭은 앱 종료·탭 닫기에 화면만 떼고, 직접 띄운 탭은 앱과 함께 프로세스가 끝난다.
-재시작 전 `fine --json tabs`로 smSession·세션 ID를 확인한다. 직접 실행 탭이 있으면 재개 방법을 먼저 알리고,
-다시 연 뒤 기존 smSession과 엔진 세션이 같은지 확인한다. 명시적 종료는 `sm stop NAME`이다.
+Fine 탭 닫기는 사용자가 세션을 끝내려는 동작이다. sm 세션 탭도 `sm stop`으로 끝낸다.
+앱 종료는 sm 화면만 떼며, 직접 띄운 탭만 앱과 함께 프로세스가 끝난다. 재시작 전 `fine --json tabs`로
+smSession·세션 ID를 확인하고, 직접 실행 탭이 있으면 재개 방법을 먼저 알린다.
 
 - 프로세스 이름이 전체 경로라 `pkill -x Fine`은 매칭되지 않는다. PID로 잡을 것.
 - macOS에는 `setsid`가 없다. 백그라운드 재시작 스크립트에 쓰면 조용히 실패한다.

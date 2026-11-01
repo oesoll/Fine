@@ -80,7 +80,7 @@ final class SmSessionBridgeTests: XCTestCase {
         }
     }
     @MainActor
-    func testClosingHeldTabNeverStopsTheSharedSession() throws {
+    func testClosingHeldTabStopsTheSessionButQuittingPreservesIt() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -98,8 +98,17 @@ final class SmSessionBridgeTests: XCTestCase {
             tab.cleanup(force: force)
             XCTAssertEqual(tab.smSessionName, "shared-agent")
         }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "closing a view invoked lifecycle commands")
+        let quitTab = TerminalSession(attaching: "kept-on-quit", harness: .claude)
+        quitTab.cleanupForTermination()
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            let calls = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+            if calls.split(separator: "\n").count >= 2 { break }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        let calls = try String(contentsOf: log, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(calls, ["stop shared-agent", "stop shared-agent"])
+
     }
 
 }
