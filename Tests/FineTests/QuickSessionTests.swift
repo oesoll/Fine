@@ -164,7 +164,7 @@ final class QuickSessionTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalSession.launchArguments(launch: .initialPrompt("hi"), configuration: configuration),
-            ["-ilc", #"exec "$FINE_CCV" -y --model "$FINE_MODEL" --effort "$FINE_EFFORT" "$FINE_INITIAL_PROMPT""#]
+            ["-ilc", #"exec "$FINE_CCV" -y --model "$FINE_MODEL" --effort "$FINE_EFFORT" -- "$FINE_INITIAL_PROMPT""#]
         )
         XCTAssertEqual(
             TerminalSession.launchArguments(
@@ -246,7 +246,7 @@ final class QuickSessionTests: XCTestCase {
         let launch = QuickLaunch.initialPrompt(prompt)
         XCTAssertEqual(
             TerminalSession.launchArguments(launch: launch),
-            ["-ilc", #"exec "$FINE_CCV" -y "$FINE_INITIAL_PROMPT""#]
+            ["-ilc", #"exec "$FINE_CCV" -y -- "$FINE_INITIAL_PROMPT""#]
         )
         XCTAssertEqual(QuickSessionPolicy.environment(for: launch)["FINE_INITIAL_PROMPT"], prompt)
         XCTAssertFalse(QuickSessionPolicy.launchCommand(for: launch).contains("touch"))

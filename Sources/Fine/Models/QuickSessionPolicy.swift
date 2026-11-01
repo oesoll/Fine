@@ -146,7 +146,7 @@ enum QuickSessionPolicy {
             parts.append(#"--model "$FINE_MODEL" --effort "$FINE_EFFORT""#)
         }
         if case .initialPrompt = launch {
-            parts.append(#""$FINE_INITIAL_PROMPT""#)
+            parts.append(#"-- "$FINE_INITIAL_PROMPT""#)   // "-"로 시작하는 프롬프트가 옵션으로 읽히지 않게
         }
         return parts.joined(separator: " ")
     }
