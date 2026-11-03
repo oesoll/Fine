@@ -7,6 +7,8 @@ struct OriginalASCIISceneView: NSViewRepresentable {
     var scene: ASCIIScene = .mistyForest
     var reduceMotion: Bool
     var isActive = true
+    /// 멈춘 채 마지막 장면만 둔다(대화 탭 뒤). 화면에는 흐린 정지 화면이 남는다.
+    var isPaused = false
     /// 왼쪽에서부터 이 폭(pt)만큼 장면을 흐린다 — 반투명한 사이드바 밑.
     var blurBand: CGFloat = 0
     var onPresented: ((ASCIIScene) -> Void)? = nil
@@ -18,6 +20,7 @@ struct OriginalASCIISceneView: NSViewRepresentable {
     func updateNSView(_ view: OriginalASCIISceneNSView, context: Context) {
         view.reduceMotion = reduceMotion
         view.isActive = isActive
+        view.isPaused = isPaused
         view.onPresented = onPresented
         view.blurBand = blurBand
         view.setScene(scene)
@@ -34,6 +37,7 @@ final class OriginalASCIISceneNSView: NSView, WKNavigationDelegate {
     let webView: WKWebView
     var reduceMotion = false
     var isActive = true
+    var isPaused = false
     var onPresented: ((ASCIIScene) -> Void)?
     private(set) var isReady = false
     private(set) var scene: ASCIIScene
@@ -139,7 +143,7 @@ final class OriginalASCIISceneNSView: NSView, WKNavigationDelegate {
     func updatePlayback() {
         guard isReady else { return }
         let visible = window.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
-        let next = Self.shouldAnimate(visible: visible && isActive && !isHiddenOrHasHiddenAncestor,
+        let next = Self.shouldAnimate(visible: visible && isActive && !isPaused && !isHiddenOrHasHiddenAncestor,
                                       reduceMotion: reduceMotion,
                                       lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         guard next != playing else { return }

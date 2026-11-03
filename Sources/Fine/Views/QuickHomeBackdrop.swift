@@ -48,6 +48,10 @@ struct QuickHomeBackdrop: View {
                 // 렌더러 하나가 안팎을 같은 박자로 움직이고, 추가 렌더러나 회색 막이 없다.
                 OriginalASCIISceneView(scene: background.scene ?? lastScene,
                                        reduceMotion: reduceMotion, isActive: showArt,
+                                       // 대화 탭 뒤에서는 멈춘다. 60% 검은 유리와 화면 전체 블러 밑이라 움직임은
+                                       // 거의 보이지 않는데, 15fps마다 창 전체 블러를 다시 계산하느라 WebKit이
+                                       // CPU 28%를 썼다(11/03 측정, 배터리). 탭을 닫으면 멈춘 자리에서 다시 돈다.
+                                       isPaused: blurAll,
                                        blurBand: blurAll ? .infinity : isCard || sidebarHidden ? 0 : bleed + overlay,
                                        onPresented: onScenePresented)
                     .frame(width: frame.width, height: frame.height)
