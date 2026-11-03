@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 
@@ -76,6 +77,7 @@ final class AttentionStore: ObservableObject {
     /// 목록은 sm에서 받아 둔다. 파일은 쓰지 않는다 — 원본은 sm이다.
     private(set) var mirrorsSm = false
     private var mirrorTimer: Timer?
+    private var activationObserver: NSObjectProtocol?
     static let capacity = 200
     static let workingLease: TimeInterval = 3600
     static let doneLifetime: TimeInterval = 30
@@ -103,10 +105,20 @@ final class AttentionStore: ObservableObject {
         mirrorsSm = true
         expiry?.invalidate(); expiry = nil
         refreshMirror()
-        mirrorTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+        // 사이드바의 상태 점만 그리는 사본이다. 보이는 창이 없으면 묻지 않고, 5초마다 묻는다 — 3초마다 sm의
+        // 노치 전체(쌓인 항목 91개)를 JSON으로 받아 sm 메인 스레드와 이 앱이 함께 일했다(11/03 배터리 측정).
+        // Fine이 앞으로 오면 그 자리에서 한 번 묻는다. 이 앱이 올리는 알림은 post()가 바로 반영한다.
+        mirrorTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard AppResourcePolicy.hasVisibleWindows else { return }
+                self?.refreshMirror()
+            }
+        }
+        mirrorTimer?.tolerance = 1.5
+        activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                                                    object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshMirror() }
         }
-        mirrorTimer?.tolerance = 1
     }
 
     private func refreshMirror() {
