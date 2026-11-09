@@ -7,7 +7,7 @@ import PackageDescription
 let siblingTerminal = Context.packageDirectory + "/../GhosttyTerminal/Package.swift"
 let terminal: Package.Dependency = FileManager.default.fileExists(atPath: siblingTerminal)
     ? .package(path: "../GhosttyTerminal")
-    : .package(url: "https://github.com/oesoll/GhosttyTerminal.git", from: "0.2.1")
+    : .package(url: "https://github.com/oesoll/GhosttyTerminal.git", from: "0.2.3")
 
 let package = Package(
     name: "Fine",
