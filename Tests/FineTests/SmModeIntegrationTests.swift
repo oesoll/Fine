@@ -109,6 +109,17 @@ final class SmModeIntegrationTests: XCTestCase {
                       "visible tab did not attach: clients=\(attachClients(name)) live=\(view.surface != nil) screen=\(view.readScreen(lines: 5) ?? "nil")")
 
         XCTAssertTrue(wait(60) { (view.readScreen(lines: 40) ?? "").contains("확인") }, "the first reply never came")
+        // 잠깐 가렸다 돌아오면 붙은 그대로다 — 다시 붙지도, 덮이지도 않는다(11/09).
+        session.isVisible = false
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertGreaterThan(attachClients(name), 0, "a briefly hidden tab dropped its attach")
+        session.isVisible = true
+        XCTAssertFalse(view.stage.isCovered, "coming back to a briefly hidden tab covered it")
+
+        // 가려진 탭은 유예(10분) 뒤에 내린다 — 시험에서는 바로.
+        let grace = TerminalSession.lowerAfter
+        TerminalSession.lowerAfter = 0
+        defer { TerminalSession.lowerAfter = grace }
         session.isVisible = false
         XCTAssertTrue(wait(10) { self.attachClients(name) == 0 }, "hidden tab kept its attach")
         XCTAssertEqual(row(name)?["status"] as? String, "running", "hiding the tab ended the agent")

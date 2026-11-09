@@ -51,6 +51,11 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
     private var stateWatch: SmSessionBridge.StateWatch?
     /// 마지막으로 가려진 때. 세션 층은 65분 쉰 세션을 재우므로, 그보다 오래 가려졌으면 깨는 모습으로 시작한다.
     private var loweredAt: Date?
+    /// 가려진 탭이 attach를 내리기까지. 바로 내리면 탭을 오갈 때마다 다시 붙느라 막이 덮였다(11/09: "다른 탭
+    /// 본지 1분도 안 됐는데 돌아오면 로딩"). 세션 층은 65분 쉰 세션만 재우므로 10분 붙들어도 잠들기는 막지 않는다
+    /// — sm 앱(LayoutTerminals.parkAfter)과 같은 값.
+    static var lowerAfter: TimeInterval = 600
+    private var pendingLower: DispatchWorkItem?
     /// 원격 세션(NAME@HOST)에 다시 연결하기까지 기다릴 시간. 붙으면 0으로 돌아간다.
     private var reconnectDelay: TimeInterval = 0
     /// 다음 붙기가 끊긴 연결을 다시 잇는 것인가 — 그때는 세션 층에 물을 수 없어 출력이 조용해지면 걷는다.
@@ -299,7 +304,16 @@ final class TerminalSession: Identifiable, ObservableObject, Equatable {
 
     private func visibilityDidChange() {
         guard isHeld, started, startError == nil else { return }
-        if isVisible { raiseHeld() } else { lowerHeld() }
+        pendingLower?.cancel()
+        pendingLower = nil
+        if isVisible { raiseHeld(); return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isVisible else { return }
+            self.pendingLower = nil
+            self.lowerHeld()
+        }
+        pendingLower = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.lowerAfter, execute: work)
     }
 
     /// 보이는 탭을 그 세션에 붙인다. 화면(장면)이 있으면 그 아래에 새 표면을 깔고 덮개를 얹는다 — 깨어 있는
