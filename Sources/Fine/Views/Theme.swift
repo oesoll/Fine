@@ -334,7 +334,7 @@ struct LiquidSidebarGlass: View {
     @AppStorage("liquidSidebarHomeSaturation") private var homeSaturation = 1.4
     @AppStorage("liquidSidebarHomeBrightness") private var homeBrightness = 0.75
     /// 비치는 게 없을 때 돌아가는 기본 회색의 밝기(1 = 음악 앱 회색).
-    @AppStorage("liquidSidebarBase") private var base = 1.0
+    @AppStorage("liquidSidebarBase") private var base = 0.0
 
     var body: some View {
         // 다크: 덮는 색 판 없이, 밑에 비친 메인 영역을 받아 흐리고 상의 색만 낮춘다(MirrorBlurTuner).

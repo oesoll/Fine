@@ -422,7 +422,10 @@ to the left. Over that sits the sidebar's base gray (Music's #252A2E,
 Where something reflects, the sidebar shows the reflection, not its own color; where
 nothing does, it returns to its gray (SEOL's reading of Music, 11/12; Music measures
 gray (35,38,41) in its dark areas and its bulbs at about half brightness). The gray
-seen across the panel is the blur and the base, not a layer laid over the mirror. Values differ by what the main area shows (SEOL 11/12: more reflection
+seen across the panel is the blur and the base, not a layer laid over the mirror.
+On the real app SEOL preferred it without the base (11/12, "it was just right before
+this install"), so `liquidSidebarBase` defaults to 0 — max with black, i.e. no base;
+raise it to bring the gray back. Values differ by what the main area shows (SEOL 11/12: more reflection
 on the home, less over a terminal): home — blur 20, saturation 1.4, brightness ×0.75;
 terminal — blur 16, saturation 1.1, brightness ×0.45. Keys `liquidSidebar…` and
 `liquidSidebarHome…`, all live.
