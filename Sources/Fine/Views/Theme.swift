@@ -313,8 +313,6 @@ extension EnvironmentValues {
 /// 기울기 완만, MirrorBlurTuner) → 어둡게(LiquidSidebarGlass) 순서다.
 /// Reduce Transparency·Increase Contrast에서는 예전 재질 사이드바로 돌아간다.
 enum LiquidSidebar {
-    /// 음악 앱 사이드바의 바탕 회색(다크, 실측에서 역산).
-    static let veilGray = Color(red: 37 / 255, green: 42 / 255, blue: 46 / 255)
 
     static func isActive(reduceTransparency: Bool, contrast: ColorSchemeContrast) -> Bool {
         guard #available(macOS 26, *) else { return false }
@@ -324,26 +322,12 @@ enum LiquidSidebar {
 
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @EnvironmentObject private var appState: AppState
-    /// 터미널 탭일 때: 거울을 차가운 짙은 회색으로 섞는 비율과 그 위 검정. 음악 앱 사이드바를 재 보니 흐린 거울
-    /// 약 37% + 회색(#252A2E) 약 63%였다(11/12 실측). 새 대화(홈)는 장면이 잘 비치게 따로 옅게 둔다(SEOL 11/12
-    /// "새 대화에선 더 잘 비치게, 터미널에는 좀 덜 비치게"). 모두 `defaults write com.seol.fine <키> -float 값`.
-    @AppStorage("liquidSidebarVeil") private var veil = 0.63
-    @AppStorage("liquidSidebarTint") private var tint = 0.4
-    @AppStorage("liquidSidebarHomeVeil") private var homeVeil = 0.45
-    @AppStorage("liquidSidebarHomeTint") private var homeTint = 0.0
 
     var body: some View {
-        // 사이드바 = 거울 → 블러(MirrorBlurTuner) → 회색·검정(여기). 유리 효과는 쓰지 않는다: 테두리가 경계에 틈을
-        // 만들고 굴절 띠가 경계 옆 글자를 조각으로 끌어왔다(11/12).
-        let onHome = appState.selectedSession == nil
-        let dark = colorScheme == .dark
-        ZStack {
-            Rectangle().fill(dark ? LiquidSidebar.veilGray.opacity(onHome ? homeVeil : veil) : Color.white.opacity(0.45))
-            Rectangle().fill(Color.black.opacity(dark ? (onHome ? homeTint : tint) : 0))
-        }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: onHome)
-        .ignoresSafeArea()
+        // 다크에서는 아무것도 덮지 않는다 — 사이드바는 메인 영역이 흐리고 어둡게 비친 상뿐이다. 상의 색(채도·밝기)은
+        // 블러와 함께 MirrorBlurTuner가 바꾼다(SEOL 11/12 "비침 자체의 색을 조정해야"). 밝은 모드는 아직 보지 않았다.
+        Rectangle()
+            .fill(colorScheme == .dark ? Color.clear : Color.white.opacity(0.45))
+            .ignoresSafeArea()
     }
 }

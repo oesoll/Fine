@@ -409,15 +409,22 @@ blur, then a flat dark layer. The blur reuses the effect's own variable-blur lay
 but redraws its strength map as a gentle straight ramp — strongest at the window's
 left edge (`liquidSidebarBlur`, 20 pt) and sharpening toward the seam, where it is
 `liquidSidebarSharpEdge` (0.3) of that — instead of the system's ramp, which turned
-sharp only in the last few points and left a crisp band by the seam. The last layers are a cool dark gray (#252A2E) and black: measured from Music, its
-sidebar is about 37% blurred mirror and 63% of that gray — bright content darkens,
-dark content lifts to gray, saturation drops — so the sidebar reads as a flat gray
-panel with the main area faintly behind it. The blur is Apple-material style: wide
-(computed at quarter resolution) with saturation after it, so light scatters with
-its color instead of smearing gray. The values differ by what the main area shows
-(SEOL 11/12: more reflection on the new-conversation home, less over a terminal):
-terminal — veil 63%, black 40%, blur 40, saturation 1.8; home — veil 45%, black 0,
-blur 48, saturation 2.2. Keys `liquidSidebar…` and `liquidSidebarHome…`, all live.
+sharp only in the last few points and left a crisp band by the seam. Nothing is laid over the mirror. Gray and black layers (tried 11/12) lifted the
+reflection's blacks and made the sidebar read as a panel with its own color (SEOL:
+"the side tab itself has a color and draws the reflection on it — that is what is
+unnatural"). Instead the reflection's own color is graded in the same backdrop that
+blurs it: blur, then saturation, then a multiply on brightness (slightly cool), so
+black stays black and only the light is lowered. The blur is Apple-material style:
+wide, computed at quarter resolution. Values differ by what the main area shows
+(SEOL 11/12: more reflection on the home, less over a terminal): home — blur 48,
+saturation 1.6, brightness ×0.8; terminal — blur 40, saturation 1.2, brightness ×0.5.
+Keys `liquidSidebar…` and `liquidSidebarHome…`, all live.
+
+Pitfall: the variable blur reads its strength map's alpha. An alpha-only gray CGImage
+is never created (nil), and the tuner silently left the system's own blur in place
+for several rounds of tuning on 11/12 — the map is RGBA with premultiplied alpha.
+Check `FINE_DEBUG_MIRROR=<file>` for a "tuned" line before judging any value.
+
 No glass: its rim drew a light line at
 the seam and its refraction band pulled glyphs from the main area into the sidebar.
 All three values are user defaults and change live. The blur layer is private
