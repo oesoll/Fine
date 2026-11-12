@@ -32,8 +32,13 @@ struct QuickHomeBackdrop: View {
         let palette = HomeArtworkSurface.palette(for: background, scheme: colorScheme,
                                                  reduceTransparency: reduceTransparency)
         GeometryReader { geometry in
-            let panorama = CGRect(origin: .zero, size: CGSize(width: geometry.size.width,
-                height: HomeArtworkComposition.height(for: background, size: geometry.size)))
+            // 새 대화 화면에서는 장면이 오른쪽 작업부만 덮는다 — 사이드바 밑까지 번지면 그림이 사이드바에
+            // 가렸다(SEOL 11/12 "아스키의 폭이 사이드패널을 덮지 않게"). 대화 탭 뒤(흐린 장면)는 사이드바
+            // 밑까지 깔아 둔다 — 유리 사이드바가 그 빛을 은은하게 비친다(SEOL이 고른 시안).
+            let inset = blurAll ? 0 : bleed
+            let area = CGSize(width: max(0, geometry.size.width - inset), height: geometry.size.height)
+            let panorama = CGRect(x: inset, y: 0, width: area.width,
+                                  height: HomeArtworkComposition.height(for: background, size: area))
             let frame = isCard && !cardFrame.isEmpty ? cardFrame.offsetBy(dx: bleed, dy: 0) : panorama
             ZStack(alignment: .topLeading) {
                 palette.base
@@ -52,7 +57,7 @@ struct QuickHomeBackdrop: View {
                                        // 거의 보이지 않는데, 15fps마다 창 전체 블러를 다시 계산하느라 WebKit이
                                        // CPU 28%를 썼다(11/03 측정, 배터리). 탭을 닫으면 멈춘 자리에서 다시 돈다.
                                        isPaused: blurAll,
-                                       blurBand: blurAll ? .infinity : isCard || sidebarHidden ? 0 : bleed + overlay,
+                                       blurBand: blurAll ? .infinity : isCard || sidebarHidden ? 0 : overlay,
                                        onPresented: onScenePresented)
                     .frame(width: frame.width, height: frame.height)
                     .background {
@@ -85,10 +90,13 @@ struct QuickHomeBackdrop: View {
                 if showArt && background.isPanorama && palette.isDark {
                     // 머리카락 굵기의 격자 한 겹. 점묘 장면이 "화면 속 그림"이 아니라 작업대의 바닥으로
                     // 읽힌다(레퍼런스 "kurage"). 장면과 같은 페이드로 아래에서 사라진다.
+                    // 사이드바 밑에는 깔지 않는다(SEOL 11/12 "사이드바의 격자 디테일은 없애고").
+                    let grid = CGRect(x: max(frame.minX, bleed), y: frame.minY,
+                                      width: max(0, frame.maxX - max(frame.minX, bleed)), height: frame.height)
                     HomeGrid(spacing: 28)
-                        .frame(width: frame.width, height: frame.height)
+                        .frame(width: grid.width, height: grid.height)
                         .mask { HomeSceneFade() }
-                        .offset(x: frame.minX, y: frame.minY)
+                        .offset(x: grid.minX, y: grid.minY)
                         .transition(.opacity)
                 }
             }

@@ -18,6 +18,7 @@ struct ContentView: View {
     @ObservedObject private var backgrounds = HomeBackgroundSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     private var artwork: Bool {
         HomeArtworkMode.isActive(isDark: colorScheme == .dark, reduceTransparency: reduceTransparency,
@@ -31,6 +32,19 @@ struct ContentView: View {
             if appState.selectedSession == nil || artwork {
                 QuickHomeView()
                     .environment(\.homeInBackground, appState.selectedSession != nil)
+                    .transition(.opacity)
+            }
+            // 유리 사이드바(macOS 26+) 밑으로 대화 탭의 검은 유리를 잇는다 — 터미널이 사이드바 밑까지 이어져
+            // 비친다(SEOL 11/12 시안). 터미널 뷰 자체에 미러(backgroundExtensionEffect)를 걸면 처음 크기로
+            // 굳은 사본이 남아서, 바탕만 늘린다. 글자는 비치지 않는다.
+            if appState.selectedSession != nil, artwork, !sidebarCollapsed,
+               LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) {
+                Color.black.opacity(0.6)
+                    .frame(width: sidebarWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .offset(x: -sidebarWidth)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                     .transition(.opacity)
             }
             if let session = appState.selectedSession {
