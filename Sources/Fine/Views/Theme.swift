@@ -309,8 +309,8 @@ extension EnvironmentValues {
 
 /// macOS 27의 사이드바처럼, 사이드바는 창 가장자리까지 붙은 Liquid Glass다. 그 밑에는 메인 영역의 거울
 /// (`backgroundExtensionEffect`, ContentView)이 놓인다 — 홈의 장면이든 대화 탭의 터미널이든 메인에 있는 것이
-/// 좌우로 뒤집혀 흐리게 비친다(SEOL 11/12: "사이드패널은 메인 영역의 거울이야"). 유리는 약간 검은 톤의
-/// 스테인드글라스(맑은 유리 + 검정, LiquidSidebarGlass). 가짜 1pt 굴절 가장자리는 없다.
+/// 좌우로 뒤집혀 비친다(SEOL 11/12: "사이드패널은 메인 영역의 거울이야"). 거울 → 블러(경계로 갈수록 선명,
+/// 기울기 완만, MirrorBlurTuner) → 어둡게(LiquidSidebarGlass) 순서다.
 /// Reduce Transparency·Increase Contrast에서는 예전 재질 사이드바로 돌아간다.
 enum LiquidSidebar {
 
@@ -322,27 +322,14 @@ enum LiquidSidebar {
 
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
-    /// 다크의 스테인드글라스 농도 — 맑은 유리에 물들이는 검정. `defaults write com.seol.fine liquidSidebarTint -float 0.6`
-    /// 로 재시작 없이 바꾼다(SEOL이 45%·60%를 실제 화면에서 비교해 60%를 골랐다, 11/12).
+    /// 거울의 상을 어둡게 하는 검정(다크). `defaults write com.seol.fine liquidSidebarTint -float 0.6`.
     @AppStorage("liquidSidebarTint") private var tint = 0.6
-    /// 유리판이 경계 밖으로 넘치는 폭(pt). 클수록 경계의 굴절이 옅어진다. `liquidSidebarEdgeOverhang`.
-    @AppStorage("liquidSidebarEdgeOverhang") private var edgeOverhang = 14.0
 
     var body: some View {
-        // 약간 검은 톤의 스테인드글라스: 밑의 거울(메인 영역)이 비치는 맑은 유리에 검정을 물들인다.
-        let glass: Glass = colorScheme == .dark ? .clear.tint(.black.opacity(tint)) : .regular
-        // 유리는 가장자리 안쪽 띠가 바깥 내용을 렌즈처럼 끌어온다. 메인과 맞닿는 경계에서는 검은 바탕의 흰 글자
-        // (●, ❯)가 그 띠에 끌려 와 선명한 조각으로 튀었다(SEOL 11/12 "비침이 이상한데"). 그래서 유리판을 오른쪽으로
-        // `edgeOverhang`만큼 넓게 그리고 사이드바 폭에서 자른다 — 굴절 띠가 잘려 나가 곡률이 자세히 봐야 보일 만큼만
-        // 남는다. 위·아래·왼쪽도 창 밖으로 넘겨 창 모서리에 띠가 생기지 않게 한다.
-        GeometryReader { proxy in
-            Rectangle()
-                .fill(.clear)
-                .glassEffect(glass, in: Rectangle())
-                .frame(width: proxy.size.width + edgeOverhang + 40, height: proxy.size.height + 80)
-                .offset(x: -40, y: -40)
-        }
-        .clipped()
-        .ignoresSafeArea()
+        // 사이드바 = 거울 → 블러(MirrorBlurTuner) → 어둡게(여기). 유리 효과는 쓰지 않는다: 테두리가 경계에 틈을
+        // 만들고 굴절 띠가 경계 옆 글자를 조각으로 끌어왔다(11/12). 평평한 한 겹이 상을 고르게 누른다.
+        Rectangle()
+            .fill(colorScheme == .dark ? Color.black.opacity(tint) : Color.white.opacity(0.45))
+            .ignoresSafeArea()
     }
 }
