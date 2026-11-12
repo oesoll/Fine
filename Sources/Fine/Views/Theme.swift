@@ -313,6 +313,8 @@ extension EnvironmentValues {
 /// 기울기 완만, MirrorBlurTuner) → 어둡게(LiquidSidebarGlass) 순서다.
 /// Reduce Transparency·Increase Contrast에서는 예전 재질 사이드바로 돌아간다.
 enum LiquidSidebar {
+    /// 음악 앱 사이드바의 바탕 회색(다크, 실측에서 역산).
+    static let veilGray = Color(red: 37 / 255, green: 42 / 255, blue: 46 / 255)
 
     static func isActive(reduceTransparency: Bool, contrast: ColorSchemeContrast) -> Bool {
         guard #available(macOS 26, *) else { return false }
@@ -323,7 +325,11 @@ enum LiquidSidebar {
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
     /// 거울의 상을 어둡게 하는 검정(다크). `defaults write com.seol.fine liquidSidebarTint -float 0.6`.
-    @AppStorage("liquidSidebarTint") private var tint = 0.3
+    @AppStorage("liquidSidebarTint") private var tint = 0.0
+    /// 거울을 차가운 짙은 회색 쪽으로 섞는 비율(다크). 음악 앱 사이드바를 재 보니 흐린 거울 약 37% + 회색(#252A2E)
+    /// 약 63%였다 — 밝은 곳은 어두워지고 어두운 곳은 밝아져, 평평한 회색 판으로 읽히며 뒤가 은은하게 비친다(11/12 실측).
+    /// `defaults write com.seol.fine liquidSidebarVeil -float 0.63`.
+    @AppStorage("liquidSidebarVeil") private var veil = 0.63
     /// 거울의 상을 밝게 하는 흰색(다크). 어둡기 대신 밝게 비교할 때(SEOL 11/12 "오히려 밝기를 45?").
     /// `defaults write com.seol.fine liquidSidebarLift -float 0.45`.
     @AppStorage("liquidSidebarLift") private var lift = 0.0
@@ -332,7 +338,8 @@ struct LiquidSidebarGlass: View {
         // 사이드바 = 거울 → 블러(MirrorBlurTuner) → 어둡게(여기). 유리 효과는 쓰지 않는다: 테두리가 경계에 틈을
         // 만들고 굴절 띠가 경계 옆 글자를 조각으로 끌어왔다(11/12). 평평한 한 겹이 상을 고르게 누른다.
         ZStack {
-            Rectangle().fill(colorScheme == .dark ? Color.black.opacity(tint) : Color.white.opacity(0.45))
+            Rectangle().fill(colorScheme == .dark ? LiquidSidebar.veilGray.opacity(veil) : Color.white.opacity(0.45))
+            if colorScheme == .dark && tint > 0 { Rectangle().fill(Color.black.opacity(tint)) }
             if colorScheme == .dark && lift > 0 { Rectangle().fill(Color.white.opacity(lift)) }
         }
         .ignoresSafeArea()
