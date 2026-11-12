@@ -19,13 +19,15 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
-    /// 사이드바 거울의 블러: 왼쪽 끝의 세기(pt)와, 경계에서 그 세기의 몇 배만큼 흐린지(선명할수록 작다).
-    /// `defaults write com.seol.fine liquidSidebarBlur -float 20` / `liquidSidebarSharpEdge -float 0.3`.
-    @AppStorage("liquidSidebarBlur") private var mirrorBlur = 20.0
+    /// 사이드바 거울의 블러. 터미널 탭과 새 대화(홈)에 따로 둔다 — 홈은 장면이 잘 비치게(SEOL 11/12).
+    /// 왼쪽 끝 세기(pt), 경계에서 그 몇 배(작을수록 선명), 블러 뒤 채도, 블러 해상도 배율(0.25 = 애플 재질식,
+    /// 넓고 고르게 퍼지는 빛). 키는 `liquidSidebar…`, 홈은 `liquidSidebarHome…`.
+    @AppStorage("liquidSidebarBlur") private var mirrorBlur = 40.0
     @AppStorage("liquidSidebarSharpEdge") private var mirrorSharpEdge = 0.3
-    /// 블러 뒤 채도와 블러 해상도 배율. `liquidSidebarSaturation`, `liquidSidebarBlurScale`.
-    @AppStorage("liquidSidebarSaturation") private var mirrorSaturation = 1.0
-    @AppStorage("liquidSidebarBlurScale") private var mirrorBlurScale = 1.0
+    @AppStorage("liquidSidebarSaturation") private var mirrorSaturation = 1.8
+    @AppStorage("liquidSidebarHomeBlur") private var homeMirrorBlur = 48.0
+    @AppStorage("liquidSidebarHomeSaturation") private var homeMirrorSaturation = 2.2
+    @AppStorage("liquidSidebarBlurScale") private var mirrorBlurScale = 0.25
 
     /// macOS 26+: 사이드바는 창 가장자리까지 붙은 유리이고, 그 밑에는 메인 영역의 거울이 놓인다(LiquidSidebar).
     private var liquid: Bool { LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) }
@@ -120,8 +122,11 @@ struct ContentView: View {
                         .ignoresSafeArea(.container, edges: .top)
                 ))
                 .backgroundExtensionEffectIfAvailable(enabled: !sidebarCollapsed)
-                .background { MirrorBlurTuner(radius: mirrorBlur, sharpEdge: mirrorSharpEdge,
-                                                         saturation: mirrorSaturation, scale: mirrorBlurScale).frame(width: 0, height: 0) }
+                .background { MirrorBlurTuner(radius: appState.selectedSession == nil ? homeMirrorBlur : mirrorBlur,
+                                                         sharpEdge: mirrorSharpEdge,
+                                                         saturation: appState.selectedSession == nil
+                                                             ? homeMirrorSaturation : mirrorSaturation,
+                                                         scale: mirrorBlurScale).frame(width: 0, height: 0) }
                 .safeAreaInset(edge: .leading, spacing: 0) {
                     Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth.rounded())
                 }
