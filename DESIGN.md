@@ -417,7 +417,12 @@ takes the mirror beneath it and applies a variable blur, then saturation, then a
 brightness multiply (slightly cool) — black stays black, only light is lowered. The
 blur is strongest at the window's left edge and falls in a straight line to zero at
 the seam, so the mirror continues the main area's detail there and melts into light
-to the left. Values differ by what the main area shows (SEOL 11/12: more reflection
+to the left. Over that sits the sidebar's base gray (Music's #252A2E,
+`liquidSidebarBase` scales it) with a lighten blend — the brighter of the two wins.
+Where something reflects, the sidebar shows the reflection, not its own color; where
+nothing does, it returns to its gray (SEOL's reading of Music, 11/12; Music measures
+gray (35,38,41) in its dark areas and its bulbs at about half brightness). The gray
+seen across the panel is the blur and the base, not a layer laid over the mirror. Values differ by what the main area shows (SEOL 11/12: more reflection
 on the home, less over a terminal): home — blur 20, saturation 1.4, brightness ×0.75;
 terminal — blur 16, saturation 1.1, brightness ×0.45. Keys `liquidSidebar…` and
 `liquidSidebarHome…`, all live.

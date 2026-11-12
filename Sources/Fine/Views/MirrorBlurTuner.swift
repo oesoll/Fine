@@ -8,22 +8,28 @@ import SwiftUI
 /// 시스템 거울의 블러 레이어를 직접 고쳐 쓰지 않는다: SwiftUI가 갱신할 때마다 시스템이 제 값으로 되돌리고 우리가
 /// 1초마다 다시 덮어써서, 0.1초 선명했다가 안개가 되는 깜빡임이 났다(11/12). 대신 이 판이 밑에 비친 것을 받아(백드롭)
 /// 가변 블러 → 채도 → 밝기(곱)를 건다. 왼쪽 끝이 가장 흐리고 경계로 갈수록 완만하게 선명해져 `sharpEdge`배가 된다.
-/// 곱이라 검정은 검정으로 남는다. 백드롭은 비공개 클래스라, 없으면 이 판은 비고 시스템 블러만 남는다.
+///
+/// 그 위에 사이드바의 기본 회색을 "밝은 쪽 택하기"(lighten)로 얹는다: 비치는 게 있으면 상이 보이고(자기 색을 살리지
+/// 않는다), 비치는 게 없으면 기본 회색으로 돌아간다(SEOL 11/12 분석, 음악 앱 실측: 어두운 곳은 회색 (35,38,41), 전구
+/// 불빛 158은 사이드바에서 76 — 상의 밝기 약 ×0.5와 회색 중 밝은 쪽). 백드롭은 비공개 클래스라, 없으면 시스템 블러만 남는다.
 struct MirrorBlurTuner: NSViewRepresentable {
     var radius: Double
     var sharpEdge: Double
     var saturation: Double
     var brightness: Double
+    /// 사이드바 기본 회색의 밝기 배율(1 = 음악 앱 회색 #252A2E).
+    var base: Double
 
     func makeNSView(context: Context) -> MirrorBlurView { MirrorBlurView() }
     func updateNSView(_ view: MirrorBlurView, context: Context) {
-        view.configure(radius: radius, sharpEdge: sharpEdge, saturation: saturation, brightness: brightness)
+        view.configure(radius: radius, sharpEdge: sharpEdge, saturation: saturation, brightness: brightness, base: base)
     }
 }
 
 final class MirrorBlurView: NSView {
     private var backdrop: CALayer?
-    private var settings = (radius: 0.0, sharpEdge: 0.0, saturation: 1.0, brightness: 1.0)
+    private let baseLayer = CALayer()
+    private var settings = (radius: 0.0, sharpEdge: 0.0, saturation: 1.0, brightness: 1.0, base: 1.0)
     private var mapWidth = 0
 
     override init(frame: NSRect) {
@@ -35,14 +41,17 @@ final class MirrorBlurView: NSView {
             self.layer?.addSublayer(layer)
             backdrop = layer
         }
+        baseLayer.anchorPoint = .zero
+        baseLayer.compositingFilter = "lightenBlendMode"
+        self.layer?.addSublayer(baseLayer)
         setAccessibilityElement(false)
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func configure(radius: Double, sharpEdge: Double, saturation: Double, brightness: Double) {
-        let next = (radius, sharpEdge, saturation, brightness)
+    func configure(radius: Double, sharpEdge: Double, saturation: Double, brightness: Double, base: Double) {
+        let next = (radius, sharpEdge, saturation, brightness, base)
         guard next != settings else { return }
         settings = next
         mapWidth = 0
@@ -54,6 +63,10 @@ final class MirrorBlurView: NSView {
         guard let backdrop else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         backdrop.frame = bounds
+        baseLayer.frame = bounds
+        let b = settings.base
+        baseLayer.backgroundColor = CGColor(srgbRed: min(1, 37 / 255 * b), green: min(1, 42 / 255 * b),
+                                            blue: min(1, 46 / 255 * b), alpha: 1)
         let width = max(1, Int(bounds.width.rounded()))
         if width != mapWidth {
             mapWidth = width
