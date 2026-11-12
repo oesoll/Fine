@@ -19,18 +19,6 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
-    /// 사이드바 거울의 블러. 터미널 탭과 새 대화(홈)에 따로 둔다 — 홈은 장면이 잘 비치게(SEOL 11/12).
-    /// 왼쪽 끝 세기(pt), 경계에서 그 몇 배(작을수록 선명), 블러 뒤 채도, 블러 해상도 배율(0.25 = 애플 재질식,
-    /// 넓고 고르게 퍼지는 빛). 키는 `liquidSidebar…`, 홈은 `liquidSidebarHome…`.
-    @AppStorage("liquidSidebarBlur") private var mirrorBlur = 40.0
-    @AppStorage("liquidSidebarSharpEdge") private var mirrorSharpEdge = 0.3
-    @AppStorage("liquidSidebarSaturation") private var mirrorSaturation = 1.2
-    @AppStorage("liquidSidebarHomeBlur") private var homeMirrorBlur = 48.0
-    @AppStorage("liquidSidebarHomeSaturation") private var homeMirrorSaturation = 1.6
-    @AppStorage("liquidSidebarBlurScale") private var mirrorBlurScale = 0.25
-    /// 비친 상 자체의 밝기(곱). 터미널은 덜 비치게, 홈은 잘 비치게.
-    @AppStorage("liquidSidebarBrightness") private var mirrorBrightness = 0.5
-    @AppStorage("liquidSidebarHomeBrightness") private var homeMirrorBrightness = 0.8
 
     /// macOS 26+: 사이드바는 창 가장자리까지 붙은 유리이고, 그 밑에는 메인 영역의 거울이 놓인다(LiquidSidebar).
     private var liquid: Bool { LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) }
@@ -125,13 +113,6 @@ struct ContentView: View {
                         .ignoresSafeArea(.container, edges: .top)
                 ))
                 .backgroundExtensionEffectIfAvailable(enabled: !sidebarCollapsed)
-                .background { MirrorBlurTuner(radius: appState.selectedSession == nil ? homeMirrorBlur : mirrorBlur,
-                                                         sharpEdge: mirrorSharpEdge,
-                                                         saturation: appState.selectedSession == nil
-                                                             ? homeMirrorSaturation : mirrorSaturation,
-                                                         scale: mirrorBlurScale,
-                                                         brightness: appState.selectedSession == nil
-                                                             ? homeMirrorBrightness : mirrorBrightness).frame(width: 0, height: 0) }
                 .safeAreaInset(edge: .leading, spacing: 0) {
                     Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth.rounded())
                 }

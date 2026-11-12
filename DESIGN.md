@@ -412,23 +412,20 @@ left edge (`liquidSidebarBlur`, 20 pt) and sharpening toward the seam, where it 
 sharp only in the last few points and left a crisp band by the seam. Nothing is laid over the mirror. Gray and black layers (tried 11/12) lifted the
 reflection's blacks and made the sidebar read as a panel with its own color (SEOL:
 "the side tab itself has a color and draws the reflection on it — that is what is
-unnatural"). Instead the reflection's own color is graded in the same backdrop that
-blurs it: blur, then saturation, then a multiply on brightness (slightly cool), so
-black stays black and only the light is lowered. The blur is Apple-material style:
-wide, computed at quarter resolution. Values differ by what the main area shows
-(SEOL 11/12: more reflection on the home, less over a terminal): home — blur 48,
-saturation 1.6, brightness ×0.8; terminal — blur 40, saturation 1.2, brightness ×0.5.
-Keys `liquidSidebar…` and `liquidSidebarHome…`, all live.
+unnatural"). Instead the sidebar holds its own backdrop layer (MirrorBlurTuner) that
+takes the mirror beneath it and applies a variable blur, then saturation, then a
+brightness multiply (slightly cool) — black stays black, only light is lowered. The
+blur is strongest at the window's left edge and falls in a straight line to zero at
+the seam, so the mirror continues the main area's detail there and melts into light
+to the left. Values differ by what the main area shows (SEOL 11/12: more reflection
+on the home, less over a terminal): home — blur 20, saturation 1.4, brightness ×0.75;
+terminal — blur 16, saturation 1.1, brightness ×0.45. Keys `liquidSidebar…` and
+`liquidSidebarHome…`, all live.
 
-Pitfall: the variable blur reads its strength map's alpha. An alpha-only gray CGImage
-is never created (nil), and the tuner silently left the system's own blur in place
-for several rounds of tuning on 11/12 — the map is RGBA with premultiplied alpha.
-Check `FINE_DEBUG_MIRROR=<file>` for a "tuned" line before judging any value.
-
-No glass: its rim drew a light line at
-the seam and its refraction band pulled glyphs from the main area into the sidebar.
-All three values are user defaults and change live. The blur layer is private
-structure (MirrorBlurTuner); if it is not found, the system's own blur stays.
+Do not rewrite the system mirror's own blur layer: SwiftUI resets it on updates and a
+timer that re-applied our values made it flash sharp, then fog (11/12). The variable
+blur reads its map's alpha; an alpha-only gray CGImage is never created (nil), which
+silently dropped the whole adjustment for a while — the map is RGBA.
 
 Why the minimum is macOS 26: with a lower deployment target the effect's portals
 get no flip or offset and sit on top of the main area as a stale copy (reproduced

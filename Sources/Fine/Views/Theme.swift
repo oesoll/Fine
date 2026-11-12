@@ -322,12 +322,31 @@ enum LiquidSidebar {
 
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appState: AppState
+    /// 사이드바 밑 거울을 받는 블러 판의 값. 터미널 탭과 새 대화(홈)에 따로 둔다 — 홈은 장면이 잘 비치게,
+    /// 터미널은 덜 비치게(SEOL 11/12). 왼쪽 끝 블러(pt), 경계에서 그 몇 배(작을수록 선명), 채도, 상 밝기(곱).
+    /// 모두 `defaults write com.seol.fine <키> -float 값`으로 재시작 없이 바뀐다.
+    @AppStorage("liquidSidebarBlur") private var blur = 16.0
+    @AppStorage("liquidSidebarSharpEdge") private var sharpEdge = 0.0
+    @AppStorage("liquidSidebarSaturation") private var saturation = 1.1
+    @AppStorage("liquidSidebarBrightness") private var brightness = 0.45
+    @AppStorage("liquidSidebarHomeBlur") private var homeBlur = 20.0
+    @AppStorage("liquidSidebarHomeSaturation") private var homeSaturation = 1.4
+    @AppStorage("liquidSidebarHomeBrightness") private var homeBrightness = 0.75
 
     var body: some View {
-        // 다크에서는 아무것도 덮지 않는다 — 사이드바는 메인 영역이 흐리고 어둡게 비친 상뿐이다. 상의 색(채도·밝기)은
-        // 블러와 함께 MirrorBlurTuner가 바꾼다(SEOL 11/12 "비침 자체의 색을 조정해야"). 밝은 모드는 아직 보지 않았다.
-        Rectangle()
-            .fill(colorScheme == .dark ? Color.clear : Color.white.opacity(0.45))
-            .ignoresSafeArea()
+        // 다크: 덮는 색 판 없이, 밑에 비친 메인 영역을 받아 흐리고 상의 색만 낮춘다(MirrorBlurTuner).
+        // 밝은 모드는 아직 보지 않았다.
+        let onHome = appState.selectedSession == nil
+        Group {
+            if colorScheme == .dark {
+                MirrorBlurTuner(radius: onHome ? homeBlur : blur, sharpEdge: sharpEdge,
+                                saturation: onHome ? homeSaturation : saturation,
+                                brightness: onHome ? homeBrightness : brightness)
+            } else {
+                Rectangle().fill(Color.white.opacity(0.45))
+            }
+        }
+        .ignoresSafeArea()
     }
 }
