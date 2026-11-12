@@ -324,12 +324,17 @@ struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
     /// 거울의 상을 어둡게 하는 검정(다크). `defaults write com.seol.fine liquidSidebarTint -float 0.6`.
     @AppStorage("liquidSidebarTint") private var tint = 0.6
+    /// 거울의 상을 밝게 하는 흰색(다크). 어둡기 대신 밝게 비교할 때(SEOL 11/12 "오히려 밝기를 45?").
+    /// `defaults write com.seol.fine liquidSidebarLift -float 0.45`.
+    @AppStorage("liquidSidebarLift") private var lift = 0.0
 
     var body: some View {
         // 사이드바 = 거울 → 블러(MirrorBlurTuner) → 어둡게(여기). 유리 효과는 쓰지 않는다: 테두리가 경계에 틈을
         // 만들고 굴절 띠가 경계 옆 글자를 조각으로 끌어왔다(11/12). 평평한 한 겹이 상을 고르게 누른다.
-        Rectangle()
-            .fill(colorScheme == .dark ? Color.black.opacity(tint) : Color.white.opacity(0.45))
-            .ignoresSafeArea()
+        ZStack {
+            Rectangle().fill(colorScheme == .dark ? Color.black.opacity(tint) : Color.white.opacity(0.45))
+            if colorScheme == .dark && lift > 0 { Rectangle().fill(Color.white.opacity(lift)) }
+        }
+        .ignoresSafeArea()
     }
 }
