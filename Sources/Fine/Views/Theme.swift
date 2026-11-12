@@ -325,13 +325,24 @@ struct LiquidSidebarGlass: View {
     /// 다크의 스테인드글라스 농도 — 맑은 유리에 물들이는 검정. `defaults write com.seol.fine liquidSidebarTint -float 0.6`
     /// 로 재시작 없이 바꾼다(SEOL이 45%·60%를 실제 화면에서 비교해 60%를 골랐다, 11/12).
     @AppStorage("liquidSidebarTint") private var tint = 0.6
+    /// 유리판이 경계 밖으로 넘치는 폭(pt). 클수록 경계의 굴절이 옅어진다. `liquidSidebarEdgeOverhang`.
+    @AppStorage("liquidSidebarEdgeOverhang") private var edgeOverhang = 14.0
 
     var body: some View {
         // 약간 검은 톤의 스테인드글라스: 밑의 거울(메인 영역)이 비치는 맑은 유리에 검정을 물들인다.
         let glass: Glass = colorScheme == .dark ? .clear.tint(.black.opacity(tint)) : .regular
-        Rectangle()
-            .fill(.clear)
-            .glassEffect(glass, in: Rectangle())
-            .ignoresSafeArea()
+        // 유리는 가장자리 안쪽 띠가 바깥 내용을 렌즈처럼 끌어온다. 메인과 맞닿는 경계에서는 검은 바탕의 흰 글자
+        // (●, ❯)가 그 띠에 끌려 와 선명한 조각으로 튀었다(SEOL 11/12 "비침이 이상한데"). 그래서 유리판을 오른쪽으로
+        // `edgeOverhang`만큼 넓게 그리고 사이드바 폭에서 자른다 — 굴절 띠가 잘려 나가 곡률이 자세히 봐야 보일 만큼만
+        // 남는다. 위·아래·왼쪽도 창 밖으로 넘겨 창 모서리에 띠가 생기지 않게 한다.
+        GeometryReader { proxy in
+            Rectangle()
+                .fill(.clear)
+                .glassEffect(glass, in: Rectangle())
+                .frame(width: proxy.size.width + edgeOverhang + 40, height: proxy.size.height + 80)
+                .offset(x: -40, y: -40)
+        }
+        .clipped()
+        .ignoresSafeArea()
     }
 }
