@@ -19,6 +19,8 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    /// 사이드바 거울에 거는 고른 블러(pt). `defaults write com.seol.fine liquidSidebarBlur -float 12`.
+    @AppStorage("liquidSidebarBlur") private var mirrorBlur = 12.0
 
     /// macOS 26+: 사이드바는 창 가장자리까지 붙은 유리이고, 그 밑에는 메인 영역의 거울이 놓인다(LiquidSidebar).
     private var liquid: Bool { LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) }
@@ -113,6 +115,7 @@ struct ContentView: View {
                         .ignoresSafeArea(.container, edges: .top)
                 ))
                 .backgroundExtensionEffectIfAvailable(enabled: !sidebarCollapsed)
+                .background { MirrorBlurTuner(radius: mirrorBlur).frame(width: 0, height: 0) }
                 .safeAreaInset(edge: .leading, spacing: 0) {
                     Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth.rounded())
                 }
