@@ -404,6 +404,12 @@ already bleeds under the sidebar shows through it; the fake one-point refractive
 edge is gone because the glass draws its own 20 pt refraction band. Reduce
 Transparency and Increase Contrast keep the material sidebar above.
 
+Behind a conversation tab the blurred scene stays under the sidebar and the tab's
+60% black glass continues beneath it, so the glass shows the dark terminal running
+on (SEOL picked this "clear" mock on 11/12). On the new-conversation home the ASCII
+scene and its hairline grid cover only the workspace to the right, never the sidebar
+(SEOL 11/12: the art should not run under the side panel).
+
 Not shipped: mirroring the terminal under the sidebar with
 `backgroundExtensionEffect` (what Music does with album art). On Fine's terminal
 it left a stale copy at the surface's first size on screen, and moving the
