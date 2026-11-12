@@ -9,11 +9,17 @@ import SwiftUI
 struct MirrorBlurTuner: NSViewRepresentable {
     var radius: Double
     var sharpEdge: Double
+    /// 블러 뒤 채도(1 = 그대로). 애플 재질처럼 빛이 탁해지지 않고 색이 산 채로 번지게 한다.
+    var saturation: Double
+    /// 블러를 이 배율의 해상도에서 계산한다(1 = 원래, 0.25 = 애플 재질). 낮을수록 넓고 고르게 퍼진다.
+    var scale: Double
 
     func makeNSView(context: Context) -> MirrorBlurTunerView { MirrorBlurTunerView() }
     func updateNSView(_ view: MirrorBlurTunerView, context: Context) {
         view.radius = radius
         view.sharpEdge = sharpEdge
+        view.saturation = saturation
+        view.scale = scale
         view.retune()
     }
 }
@@ -21,6 +27,8 @@ struct MirrorBlurTuner: NSViewRepresentable {
 final class MirrorBlurTunerView: NSView {
     var radius = 20.0
     var sharpEdge = 0.3
+    var saturation = 1.0
+    var scale = 1.0
     private var mask: (width: Int, edge: Int, sharp: Double, image: CGImage)?
     private var timer: Timer?
 
@@ -50,7 +58,8 @@ final class MirrorBlurTunerView: NSView {
             else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
             layer.name = Self.tunedName
-            layer.filters = [filter]
+            layer.filters = [filter] + (saturation != 1 ? [Self.saturate(saturation)].compactMap { $0 } : [])
+            if layer.responds(to: NSSelectorFromString("setScale:")) { layer.setValue(scale, forKey: "scale") }
             let clip = (layer.mask as? MirrorBlurMask) ?? MirrorBlurMask()
             clip.backgroundColor = NSColor.black.cgColor
             clip.frame = CGRect(x: 0, y: 0, width: edge, height: layer.bounds.height)
@@ -88,6 +97,15 @@ final class MirrorBlurTunerView: NSView {
         else { return nil }
         mask = (w, e, sharpEdge, image)
         return image
+    }
+
+    private static func saturate(_ amount: Double) -> NSObject? {
+        guard let type = NSClassFromString("CAFilter") as? NSObject.Type else { return nil }
+        let make = NSSelectorFromString("filterWithType:")
+        guard type.responds(to: make),
+              let filter = type.perform(make, with: "colorSaturate")?.takeUnretainedValue() as? NSObject else { return nil }
+        filter.setValue(amount, forKey: "inputAmount")
+        return filter
     }
 
     private static func variableBlur(_ radius: Double, mask: CGImage?) -> NSObject? {

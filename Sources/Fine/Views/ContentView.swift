@@ -23,6 +23,9 @@ struct ContentView: View {
     /// `defaults write com.seol.fine liquidSidebarBlur -float 20` / `liquidSidebarSharpEdge -float 0.3`.
     @AppStorage("liquidSidebarBlur") private var mirrorBlur = 20.0
     @AppStorage("liquidSidebarSharpEdge") private var mirrorSharpEdge = 0.3
+    /// 블러 뒤 채도와 블러 해상도 배율. `liquidSidebarSaturation`, `liquidSidebarBlurScale`.
+    @AppStorage("liquidSidebarSaturation") private var mirrorSaturation = 1.0
+    @AppStorage("liquidSidebarBlurScale") private var mirrorBlurScale = 1.0
 
     /// macOS 26+: 사이드바는 창 가장자리까지 붙은 유리이고, 그 밑에는 메인 영역의 거울이 놓인다(LiquidSidebar).
     private var liquid: Bool { LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) }
@@ -117,7 +120,8 @@ struct ContentView: View {
                         .ignoresSafeArea(.container, edges: .top)
                 ))
                 .backgroundExtensionEffectIfAvailable(enabled: !sidebarCollapsed)
-                .background { MirrorBlurTuner(radius: mirrorBlur, sharpEdge: mirrorSharpEdge).frame(width: 0, height: 0) }
+                .background { MirrorBlurTuner(radius: mirrorBlur, sharpEdge: mirrorSharpEdge,
+                                                         saturation: mirrorSaturation, scale: mirrorBlurScale).frame(width: 0, height: 0) }
                 .safeAreaInset(edge: .leading, spacing: 0) {
                     Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth.rounded())
                 }
