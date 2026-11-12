@@ -44,7 +44,7 @@ cd Fine
 ditto .build/Fine.app /Applications/Fine.app
 ```
 
-Apple Silicon 맥, macOS 14 이상에서 돌아갑니다. 처음 빌드할 때 터미널 엔진(약 35MB)을 내려받습니다.
+Apple Silicon 맥, macOS 26 이상에서 돌아갑니다. 처음 빌드할 때 터미널 엔진(약 35MB)을 내려받습니다.
 
 쓰던 에이전트만 있으면 됩니다. 깔려 있는 걸 Fine이 알아서 찾습니다.
 

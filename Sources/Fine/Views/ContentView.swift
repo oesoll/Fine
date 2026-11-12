@@ -20,6 +20,9 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
+    /// macOS 26+: 사이드바는 창 가장자리까지 붙은 유리이고, 그 밑에는 메인 영역의 거울이 놓인다(LiquidSidebar).
+    private var liquid: Bool { LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) }
+
     private var artwork: Bool {
         HomeArtworkMode.isActive(isDark: colorScheme == .dark, reduceTransparency: reduceTransparency,
                                  settings: backgrounds)
@@ -32,19 +35,6 @@ struct ContentView: View {
             if appState.selectedSession == nil || artwork {
                 QuickHomeView()
                     .environment(\.homeInBackground, appState.selectedSession != nil)
-                    .transition(.opacity)
-            }
-            // 유리 사이드바(macOS 26+) 밑으로 대화 탭의 검은 유리를 잇는다 — 터미널이 사이드바 밑까지 이어져
-            // 비친다(SEOL 11/12 시안). 터미널 뷰 자체에 미러(backgroundExtensionEffect)를 걸면 처음 크기로
-            // 굳은 사본이 남아서, 바탕만 늘린다. 글자는 비치지 않는다.
-            if appState.selectedSession != nil, artwork, !sidebarCollapsed,
-               LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) {
-                Color.black.opacity(0.6)
-                    .frame(width: sidebarWidth)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .offset(x: -sidebarWidth)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
                     .transition(.opacity)
             }
             if let session = appState.selectedSession {
@@ -63,7 +53,8 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .environment(\.homeArtworkBleed, sidebarCollapsed ? 0 : sidebarWidth)
+        // 유리 사이드바면 장면은 메인 영역에만 있다 — 사이드바에는 메인 영역의 거울만 놓인다.
+        .environment(\.homeArtworkBleed, sidebarCollapsed || liquid ? 0 : sidebarWidth)
         // 겹쳐 나온 사이드바 밑도 장면 페이지가 흐린다.
         .environment(\.homeSidebarOverlay, sidebarCollapsed && sidebarPeeking ? sidebarWidth : 0)
         .background(FineTheme.workspace)
@@ -109,10 +100,28 @@ struct ContentView: View {
         // 한쪽이 빠지고 한쪽이 들어오는 움직임이 보였다.
         let shown = (!sidebarCollapsed || sidebarPeeking) && !homeUIHidden
         ZStack(alignment: .topLeading) {
-            HStack(spacing: 0) {
-                Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth)
-                workspace
-                    .environment(\.homeImmersive, $immersive)
+            if liquid {
+                // 사이드바 = 메인 영역의 거울(SEOL 11/12). 메인 영역을 통째로 자기 호스팅 뷰 하나에 담고, 거기에
+                // 배경 확장(macOS의 사이드바 반사)을 건다. 시스템은 그 뷰를 렌더 서버에서 좌우로 뒤집어 흐린 사본을
+                // 사이드바 자리에 깐다 — 홈의 장면이든 대화 탭의 터미널이든 지금 메인에 있는 것이 그대로 비친다.
+                // 이 효과는 앱의 최소 버전이 macOS 26 미만이면 포털에 위치·뒤집기가 걸리지 않아 메인 위에 사본이
+                // 겹쳐 남는다(11/12 실측 — Package.swift가 26인 이유). 한 덩어리로 감싸야 웹뷰도 위아래가 맞다.
+                MainAreaHost(content: AnyView(
+                    workspace
+                        .environment(\.homeImmersive, $immersive)
+                        .environmentObject(appState)
+                        .ignoresSafeArea(.container, edges: .top)
+                ))
+                .backgroundExtensionEffectIfAvailable(enabled: !sidebarCollapsed)
+                .safeAreaInset(edge: .leading, spacing: 0) {
+                    Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth)
+                }
+            } else {
+                HStack(spacing: 0) {
+                    Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth)
+                    workspace
+                        .environment(\.homeImmersive, $immersive)
+                }
             }
 
             QuickSidebarView()
@@ -209,3 +218,29 @@ struct ContentView: View {
     }
 }
 
+/// 메인 영역을 자기 NSHostingView 하나에 담는다 — 배경 확장이 이것을 한 장의 그림으로 비추게.
+private struct MainAreaHost: NSViewRepresentable {
+    let content: AnyView
+
+    func makeNSView(context: Context) -> NSHostingView<AnyView> {
+        let host = NSHostingView(rootView: content)
+        // 크기는 바깥 SwiftUI가 정한다. 안쪽 내용이 창 크기를 밀어내지 않게.
+        host.sizingOptions = []
+        return host
+    }
+
+    func updateNSView(_ host: NSHostingView<AnyView>, context: Context) {
+        host.rootView = content
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func backgroundExtensionEffectIfAvailable(enabled: Bool) -> some View {
+        if #available(macOS 26, *) {
+            backgroundExtensionEffect(isEnabled: enabled)
+        } else {
+            self
+        }
+    }
+}

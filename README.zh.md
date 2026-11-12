@@ -42,7 +42,7 @@ cd Fine
 ditto .build/Fine.app /Applications/Fine.app
 ```
 
-需要搭载 Apple 芯片的 Mac,macOS 14 或更高版本。首次构建时会下载终端引擎(约 35 MB)。
+需要搭载 Apple 芯片的 Mac,macOS 26 或更高版本。首次构建时会下载终端引擎(约 35 MB)。
 
 带上你想用的智能体就够了，装了哪些 Fine 会自己找到。
 

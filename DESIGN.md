@@ -397,23 +397,18 @@ lookup; if its cost becomes material, replace lsof with native process-FD querie
 
 ## Liquid Glass sidebar (November 2026, macOS 26+)
 
-On macOS 26 and later the sidebar is Liquid Glass reaching the window edge, as
-macOS 27's own sidebars are: `glassEffect(.clear.tint(black 28%))` in dark (the
-mock SEOL chose on 11/12), `.regular` in light (not yet reviewed). The scene that
-already bleeds under the sidebar shows through it; the fake one-point refractive
-edge is gone because the glass draws its own 20 pt refraction band. Reduce
-Transparency and Increase Contrast keep the material sidebar above.
+The sidebar is a mirror of the main area, as in Music on macOS 27 (SEOL 11/12: "the
+side panel is the main area's mirror"). The whole main area — the home scene or the
+conversation tab's terminal on its black glass — lives in one hosting view with
+`backgroundExtensionEffect`; the system draws a horizontally flipped, blurred copy
+of whatever is there under the sidebar, live, from the render server. Nothing else
+sits under the sidebar: the home scene and its grid stay in the main area. On top
+is Liquid Glass to the window edge: clear with a 28% black tint in dark (the mock
+SEOL chose), `.regular` in light (not yet reviewed). No fake refractive edge.
+Reduce Transparency and Increase Contrast keep the material sidebar.
 
-Behind a conversation tab the blurred scene stays under the sidebar and the tab's
-60% black glass continues beneath it, so the glass shows the dark terminal running
-on (SEOL picked this "clear" mock on 11/12). On the new-conversation home the ASCII
-scene and its hairline grid cover only the workspace to the right, never the sidebar
-(SEOL 11/12: the art should not run under the side panel).
-
-Not shipped: mirroring the terminal under the sidebar with
-`backgroundExtensionEffect` (what Music does with album art). On Fine's terminal
-it left a stale copy at the surface's first size on screen, and moving the
-workspace to a safe-area inset cut the home scene off at the sidebar edge
-(reproduced in an isolated `FINE_HOME` instance). A ghostty surface that starts
-at its final size mirrors cleanly, so retry once the effect can be attached after
-the surface is sized.
+Why the minimum is macOS 26: with a lower deployment target the effect's portals
+get no flip or offset and sit on top of the main area as a stale copy (reproduced
+11/12 with a lab app at 14 vs 26). Apply the effect to the main area as one view,
+not to the terminal or the web view alone: Fine's terminal is one NSView claimed
+by whichever container is in the window, and a web view alone mirrors upside down.

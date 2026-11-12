@@ -44,7 +44,7 @@ cd Fine
 ditto .build/Fine.app /Applications/Fine.app
 ```
 
-Apple シリコンの Mac(macOS 14 以降)で動きます。最初のビルドでターミナルエンジン(約 35 MB)をダウンロードします。
+Apple シリコンの Mac(macOS 26 以降)で動きます。最初のビルドでターミナルエンジン(約 35 MB)をダウンロードします。
 
 使いたいエージェントがあれば十分です。入っているものは Fine が見つけます。
 

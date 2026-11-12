@@ -49,7 +49,7 @@ cd Fine
 ditto .build/Fine.app /Applications/Fine.app
 ```
 
-Fine needs an Apple Silicon Mac on macOS 14 or later. The first build downloads its terminal engine (about 35 MB).
+Fine needs an Apple Silicon Mac on macOS 26 or later. The first build downloads its terminal engine (about 35 MB).
 
 Bring the agents you want. Fine finds the ones you have.
 
