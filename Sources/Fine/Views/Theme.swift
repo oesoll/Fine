@@ -325,7 +325,7 @@ enum LiquidSidebar {
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
     /// 거울의 상을 어둡게 하는 검정(다크). `defaults write com.seol.fine liquidSidebarTint -float 0.6`.
-    @AppStorage("liquidSidebarTint") private var tint = 0.2
+    @AppStorage("liquidSidebarTint") private var tint = 0.4
     /// 거울을 차가운 짙은 회색 쪽으로 섞는 비율(다크). 음악 앱 사이드바를 재 보니 흐린 거울 약 37% + 회색(#252A2E)
     /// 약 63%였다 — 밝은 곳은 어두워지고 어두운 곳은 밝아져, 평평한 회색 판으로 읽히며 뒤가 은은하게 비친다(11/12 실측).
     /// `defaults write com.seol.fine liquidSidebarVeil -float 0.63`.

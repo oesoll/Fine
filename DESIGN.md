@@ -415,7 +415,7 @@ sidebar is about 37% blurred mirror and 63% of that gray — bright content dark
 dark content lifts to gray, saturation drops — so the sidebar reads as a flat gray
 panel with the main area faintly behind it. Plain black (tried at 0–60%) only
 darkened and never separated the sidebar from a dark terminal. On top sits black at
-`liquidSidebarTint` (20%), SEOL's "a little darker". No glass: its rim drew a light line at
+`liquidSidebarTint` (40%, SEOL 11/12). No glass: its rim drew a light line at
 the seam and its refraction band pulled glyphs from the main area into the sidebar.
 All three values are user defaults and change live. The blur layer is private
 structure (MirrorBlurTuner); if it is not found, the system's own blur stays.
