@@ -323,7 +323,7 @@ enum LiquidSidebar {
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
     /// 거울의 상을 어둡게 하는 검정(다크). `defaults write com.seol.fine liquidSidebarTint -float 0.6`.
-    @AppStorage("liquidSidebarTint") private var tint = 0.6
+    @AppStorage("liquidSidebarTint") private var tint = 0.3
     /// 거울의 상을 밝게 하는 흰색(다크). 어둡기 대신 밝게 비교할 때(SEOL 11/12 "오히려 밝기를 45?").
     /// `defaults write com.seol.fine liquidSidebarLift -float 0.45`.
     @AppStorage("liquidSidebarLift") private var lift = 0.0

@@ -410,7 +410,7 @@ but redraws its strength map as a gentle straight ramp — strongest at the wind
 left edge (`liquidSidebarBlur`, 20 pt) and sharpening toward the seam, where it is
 `liquidSidebarSharpEdge` (0.3) of that — instead of the system's ramp, which turned
 sharp only in the last few points and left a crisp band by the seam. The dark layer
-is plain black at `liquidSidebarTint` (0.6). No glass: its rim drew a light line at
+is plain black at `liquidSidebarTint` (0.3, SEOL 11/12 after trying 0, 0.45, 0.6 and a white lift). No glass: its rim drew a light line at
 the seam and its refraction band pulled glyphs from the main area into the sidebar.
 All three values are user defaults and change live. The blur layer is private
 structure (MirrorBlurTuner); if it is not found, the system's own blur stays.
