@@ -130,8 +130,18 @@ struct GlassSidebarBackground: View {
     var floating = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
+        if #available(macOS 26, *), LiquidSidebar.isActive(reduceTransparency: reduceTransparency, contrast: contrast) {
+            LiquidSidebarGlass()
+        } else {
+            materialSidebar
+        }
+    }
+
+    private var materialSidebar: some View {
         ZStack(alignment: .trailing) {
             if floating && !overArtwork {
                 // 장면이 없으면 겹친 사이드바는 불투명한 작업부 면이다.
@@ -291,5 +301,39 @@ extension EnvironmentValues {
     var finePalette: FinePalette {
         get { self[FinePaletteKey.self] }
         set { self[FinePaletteKey.self] = newValue }
+    }
+}
+
+
+// MARK: - macOS 26+ 사이드바 (11/12)
+
+/// macOS 27의 사이드바처럼, 사이드바는 창 가장자리까지 붙은 Liquid Glass다. 그 밑의 장면(홈 배경이
+/// 사이드바 밑까지 번진다)을 은은하게 비친다. SEOL이 고른 시안(11/12 "다크디자인 최고다")은 맑은 유리에 검정 28% 틴트다.
+///
+/// 터미널 미러(`backgroundExtensionEffect`)는 뺐다: Fine 터미널에 걸면 처음 크기로 굳은 사본이 화면에 남고,
+/// 작업부를 안전 영역 배치로 바꾸면 홈 장면이 사이드바 경계에서 끊겼다(11/12, 격리 Fine에서 재현 — 실험 앱의
+/// 처음부터 최종 크기인 ghostty 표면에서는 멀쩡했다). 다시 시도할 조건: 표면 크기가 정해진 뒤에 효과를 붙이는
+/// 방법을 찾거나, OS가 크기 변화를 따라가게 고쳐졌을 때. 그 전에는 터미널의 왼쪽 16pt 여백뿐이라 잃는 것도 작다.
+/// 가짜 1pt 굴절 가장자리는 없다 — 유리가 가장자리 20pt 굴절 띠를 스스로 만든다.
+/// Reduce Transparency·Increase Contrast에서는 예전 재질 사이드바로 돌아간다(문서: glass가 frostier·흑백이 된다
+/// — 우리 쪽에서는 이미 검증된 불투명 경로가 더 확실하다).
+enum LiquidSidebar {
+    static func isActive(reduceTransparency: Bool, contrast: ColorSchemeContrast) -> Bool {
+        guard #available(macOS 26, *) else { return false }
+        return !reduceTransparency && contrast == .standard
+    }
+}
+
+@available(macOS 26, *)
+struct LiquidSidebarGlass: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        // 밝은 쪽은 시안을 아직 보지 않았다. 애플 기본(regular)으로 두고, 판정을 받으면 바꾼다.
+        let glass: Glass = colorScheme == .dark ? .clear.tint(.black.opacity(0.28)) : .regular
+        Rectangle()
+            .fill(.clear)
+            .glassEffect(glass, in: Rectangle())
+            .ignoresSafeArea()
     }
 }
