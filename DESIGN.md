@@ -402,13 +402,18 @@ side panel is the main area's mirror"). The whole main area — the home scene o
 conversation tab's terminal on its black glass — lives in one hosting view with
 `backgroundExtensionEffect`; the system draws a horizontally flipped, blurred copy
 of whatever is there under the sidebar, live, from the render server. Nothing else
-sits under the sidebar: the home scene and its grid stay in the main area. On top
-is Liquid Glass to the window edge, a slightly dark stained glass: clear glass with
-a 60% black tint in dark (SEOL compared 45% and 60% on the real app, 11/12; the
-`liquidSidebarTint` default changes it live), `.regular` in light (not yet
-reviewed). No fake refractive edge, no extra material or gradient over the mirror —
-those turned the sidebar a lifted gray that the mock never had.
-Reduce Transparency and Increase Contrast keep the material sidebar.
+sits under the sidebar: the home scene and its grid stay in the main area.
+
+The sidebar is built in three steps, as SEOL laid out on 11/12: the mirror, then a
+blur, then a flat dark layer. The blur reuses the effect's own variable-blur layer
+but redraws its strength map as a gentle straight ramp — strongest at the window's
+left edge (`liquidSidebarBlur`, 20 pt) and sharpening toward the seam, where it is
+`liquidSidebarSharpEdge` (0.3) of that — instead of the system's ramp, which turned
+sharp only in the last few points and left a crisp band by the seam. The dark layer
+is plain black at `liquidSidebarTint` (0.6). No glass: its rim drew a light line at
+the seam and its refraction band pulled glyphs from the main area into the sidebar.
+All three values are user defaults and change live. The blur layer is private
+structure (MirrorBlurTuner); if it is not found, the system's own blur stays.
 
 Why the minimum is macOS 26: with a lower deployment target the effect's portals
 get no flip or offset and sit on top of the main area as a stale copy (reproduced
