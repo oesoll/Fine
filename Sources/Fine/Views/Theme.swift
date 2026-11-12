@@ -313,22 +313,32 @@ extension EnvironmentValues {
 /// 틴트(SEOL이 고른 시안). 가짜 1pt 굴절 가장자리는 없다 — 유리가 가장자리 굴절 띠를 스스로 만든다.
 /// Reduce Transparency·Increase Contrast에서는 예전 재질 사이드바로 돌아간다.
 enum LiquidSidebar {
+    /// 거울 위 흐린 재질을 섞는 비율(사이드바 왼쪽 0 → 메인과 맞닿는 경계 1). 시스템 거울은 경계 앞 몇십 pt에서
+    /// 급하게 선명해지므로 그쪽을 더 덮는다.
+    static let blurRamp: [(at: Double, amount: Double)] = [(0, 0.2), (0.5, 0.4), (0.8, 0.7), (1, 0.92)]
+
     static func isActive(reduceTransparency: Bool, contrast: ColorSchemeContrast) -> Bool {
         guard #available(macOS 26, *) else { return false }
         return !reduceTransparency && contrast == .standard
     }
 }
 
-@available(macOS 26, *)
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        // 밝은 쪽은 시안을 아직 보지 않았다. 애플 기본(regular)으로 두고, 판정을 받으면 바꾼다.
-        let glass: Glass = colorScheme == .dark ? .clear.tint(.black.opacity(0.28)) : .regular
-        Rectangle()
-            .fill(.clear)
-            .glassEffect(glass, in: Rectangle())
-            .ignoresSafeArea()
+        // 유리 효과(glassEffect)는 쓰지 않는다: 오른쪽 끝에도 밝은 테두리를 그려서, 메인과 맞닿는 경계가 밝은 줄 +
+        // 어두운 줄의 틈으로 보였다(SEOL 11/12 "미세한 틈", 음악 앱 경계에는 테두리가 없다 — 실측).
+        //
+        // 시스템 거울은 경계로 갈수록 급하게 선명해진다. 그 위에 강하게 흐린 재질을 왼쪽은 옅게, 경계 쪽은 진하게
+        // 섞어 선명도 기울기를 가운데를 축으로 완만하게 하고 전체 흐림을 조금 올린다(SEOL 11/12). 두 값이 손잡이다.
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+                .mask(LinearGradient(stops: LiquidSidebar.blurRamp.map {
+                    .init(color: .black.opacity($0.amount), location: $0.at)
+                }, startPoint: .leading, endPoint: .trailing))
+            Rectangle().fill(colorScheme == .dark ? Color.black.opacity(0.12) : Color.white.opacity(0.10))
+        }
+        .ignoresSafeArea()
     }
 }

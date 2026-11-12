@@ -114,7 +114,7 @@ struct ContentView: View {
                 ))
                 .backgroundExtensionEffectIfAvailable(enabled: !sidebarCollapsed)
                 .safeAreaInset(edge: .leading, spacing: 0) {
-                    Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth)
+                    Color.clear.frame(width: sidebarCollapsed ? 0 : sidebarWidth.rounded())
                 }
             } else {
                 HStack(spacing: 0) {
@@ -126,7 +126,8 @@ struct ContentView: View {
 
             QuickSidebarView()
                 .environment(\.sidebarFloating, sidebarCollapsed)
-                .frame(width: sidebarWidth)
+                // 정수 pt — 반 픽셀 경계는 거울과 메인 사이에 1px 줄을 남긴다.
+                .frame(width: sidebarWidth.rounded())
                 .frame(maxHeight: .infinity)
                 // 손잡이는 레이아웃을 차지하지 않는다. 고정일 때만 폭을 바꿀 수 있다.
                 .overlay(alignment: .trailing) {
