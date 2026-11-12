@@ -192,9 +192,10 @@ final class AppState: ObservableObject {
     }
 
     /// sm 세션 하나를 이 창의 탭으로 가져온다(sm 패널 → Fine). 이미 보고 있는 탭이 있으면 그 탭을 고른다.
-    /// 이 탭을 닫으면 Fine 탭의 규칙대로 그 세션이 끝난다.
+    /// 이 탭을 닫으면 Fine 탭의 규칙대로 그 세션이 끝난다. `parentID`: 그 세션을 띄운 에이전트의 탭 —
+    /// 인계받은 후임이 전임 탭 아래에 붙는다(`sm show`를 Fine 탭에서 부를 때, 11/12).
     @discardableResult
-    func attachSession(named name: String, harness: QuickHarness) -> TerminalSession {
+    func attachSession(named name: String, harness: QuickHarness, parentID: UUID? = nil) -> TerminalSession {
         if let existing = sessions.first(where: { $0.smSessionName == name }) {
             selectSession(existing)
             return existing
@@ -202,6 +203,10 @@ final class AppState: ObservableObject {
         let session = TerminalSession(attaching: name, harness: harness, configurationStorage: configurationStorage)
         bindPersistence(session)
         sessions.append(session)
+        if let parentID, let root = rootID(of: parentID) {
+            session.parentID = root
+            normalizeGroups()
+        }
         selectSession(session)
         session.startImmediately()
         persistWindowState()

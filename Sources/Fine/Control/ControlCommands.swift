@@ -461,13 +461,21 @@ enum ControlCommands {
                 }
             }
             DispatchQueue.main.async {
+                // 부른 탭(`parent`)이 있으면 그 탭의 창에, 그 탭 아래로 붙인다.
+                let parent = r.string("parent").flatMap { UUID(uuidString: $0) }
                 let run: (WindowEntry, Int) -> Void = { entry, windowIndex in
-                    let session = entry.state.attachSession(named: name, harness: harness)
+                    let owner = parent.flatMap { id in entry.state.sessions.contains { $0.id == id } ? id : nil }
+                    let session = entry.state.attachSession(named: name, harness: harness, parentID: owner)
                     if r.bool("focus") ?? true { focus(entry) }
                     completion(.ok(describe(session, index: index(of: session, in: entry), in: entry,
                                             windowIndex: windowIndex)))
                 }
-                if let (entry, index) = try? window(r) {
+                let holder = parent.flatMap { id in
+                    liveWindows().enumerated().first { $0.element.state.sessions.contains { $0.id == id } }
+                }
+                if r.string("window") == nil, let holder {
+                    run(holder.element, holder.offset)
+                } else if let (entry, index) = try? window(r) {
                     run(entry, index)
                 } else {
                     openWindow { entry in

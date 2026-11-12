@@ -29,7 +29,9 @@ fine — Fine을 터미널에서 조작한다
   fine tab next|prev                        다음/이전 탭
   fine tab move <tab> <index|+1|-1>         탭 순서 이동
   fine move <tab> sm                        이 탭의 에이전트를 sm 패널로 옮긴다 (sm 모드, 대화는 그대로)
-  fine attach <NAME[@HOST]> [--harness H]   sm 세션을 Fine 탭으로 가져온다 (sm 패널 → Fine)
+  fine attach <NAME[@HOST]> [--harness H] [--top]
+                                            sm 세션을 Fine 탭으로 가져온다 (sm 패널 → Fine). Fine 탭 안에서
+                                            부르면 그 탭 아래 하위 탭으로 붙는다 (--top이면 맨 위 탭)
   fine rename <tab> <name>                  탭 이름 바꾸기 (auto면 자동 제목으로)
   fine home                                 홈(새 대화 화면)으로
 
@@ -260,6 +262,8 @@ do {
         guard let name = sub else { throw CLIError(message: "usage: fine attach <NAME[@HOST]> [--harness claude|codex]") }
         command = "tab.attach"; args["name"] = name
         if let harness = flags["harness"] { args["harness"] = harness }
+        // Fine 탭 안의 에이전트가 부르면 자기 탭 아래로 붙인다(fine new와 같다). --top이면 묶지 않는다.
+        if flags["top"] == nil, let tab = ProcessInfo.processInfo.environment["FINE_TAB_ID"] { args["parent"] = tab }
     case ("transcript", _):
         guard let tab = sub else { throw CLIError(message: "usage: fine transcript <tab> [-n N]") }
         command = "tab.transcript"; args["tab"] = tab; args["limit"] = Int(flags["limit"] ?? "20") ?? 20
