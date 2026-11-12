@@ -323,8 +323,8 @@ enum LiquidSidebar {
 struct LiquidSidebarGlass: View {
     @Environment(\.colorScheme) private var colorScheme
     /// 다크의 스테인드글라스 농도 — 맑은 유리에 물들이는 검정. `defaults write com.seol.fine liquidSidebarTint -float 0.6`
-    /// 로 재시작 없이 바꾼다(SEOL이 45%·60%를 실제 화면에서 비교, 11/12).
-    @AppStorage("liquidSidebarTint") private var tint = 0.45
+    /// 로 재시작 없이 바꾼다(SEOL이 45%·60%를 실제 화면에서 비교해 60%를 골랐다, 11/12).
+    @AppStorage("liquidSidebarTint") private var tint = 0.6
 
     var body: some View {
         // 약간 검은 톤의 스테인드글라스: 밑의 거울(메인 영역)이 비치는 맑은 유리에 검정을 물들인다.

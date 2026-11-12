@@ -403,8 +403,11 @@ conversation tab's terminal on its black glass — lives in one hosting view wit
 `backgroundExtensionEffect`; the system draws a horizontally flipped, blurred copy
 of whatever is there under the sidebar, live, from the render server. Nothing else
 sits under the sidebar: the home scene and its grid stay in the main area. On top
-is Liquid Glass to the window edge: clear with a 28% black tint in dark (the mock
-SEOL chose), `.regular` in light (not yet reviewed). No fake refractive edge.
+is Liquid Glass to the window edge, a slightly dark stained glass: clear glass with
+a 60% black tint in dark (SEOL compared 45% and 60% on the real app, 11/12; the
+`liquidSidebarTint` default changes it live), `.regular` in light (not yet
+reviewed). No fake refractive edge, no extra material or gradient over the mirror —
+those turned the sidebar a lifted gray that the mock never had.
 Reduce Transparency and Increase Contrast keep the material sidebar.
 
 Why the minimum is macOS 26: with a lower deployment target the effect's portals
