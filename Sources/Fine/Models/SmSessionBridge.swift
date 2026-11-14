@@ -28,7 +28,7 @@ enum SmSessionBridge {
         let env = ProcessInfo.processInfo.environment
         if let path = env["FINE_SM_CLI"] { return FileManager.default.isExecutableFile(atPath: path) ? path : nil }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return [home + "/bin/sm", "/opt/homebrew/bin/sm", "/usr/local/bin/sm"]
+        return [home + "/bin/sm", home + "/.local/bin/sm", "/opt/homebrew/bin/sm", "/usr/local/bin/sm"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 

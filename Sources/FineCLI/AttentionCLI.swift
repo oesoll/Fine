@@ -49,7 +49,7 @@ func handleAttentionCLI(_ arguments: [String]) throws -> Bool {
     } catch let error as CLIError where error.message.hasPrefix("unknown command: attention.") {
         // 이 맥에선 노치가 sm의 것이다(Fine이 attention.* 를 내놓았다). 같은 일을 sm CLI로 한다.
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        guard let sm = [home + "/bin/sm", "/opt/homebrew/bin/sm", "/usr/local/bin/sm"]
+        guard let sm = [home + "/bin/sm", home + "/.local/bin/sm", "/opt/homebrew/bin/sm", "/usr/local/bin/sm"]
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw error }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: sm)
